@@ -175,6 +175,4 @@ ultralytics, opencv, open3d, mcap). Reinstalar: ver `requirements.txt`. Mantém-
 Pasta `ros2_aquisicao/` (corre no PC Ubuntu, ROS 2 em Docker): cor (`docker compose up`)
 e RGB-D (`--profile rgbd`). Ver `ros2_aquisicao/README.md`.
 
-## Legado
-O pipeline MATLAB antigo está em `legado_matlab/` (referência; já não é usado).
-O treino do YOLO continua em `python/treina_yolo.py`.
+
