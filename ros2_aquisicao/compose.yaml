@@ -1,0 +1,107 @@
+# Aquisição da câmara traseira - ATLASCAR2 (Grupo 02)
+# Arranca o driver da câmara + a transformação base_link->camera_tras_link.
+# A gravação e o rviz fazem-se com os scripts em scripts/ (entram neste contentor).
+#
+# Uso rápido:
+#   docker compose up --build        # liga a câmara (Ctrl+C para parar)
+#   ./scripts/verificar.sh           # (noutro terminal) confirma que a imagem chega
+#   ./scripts/gravar.sh percurso1    # grava; Ctrl+C para terminar a gravação
+services:
+  camera:
+    build:
+      context: .
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-ros:jazzy-ros-base}
+    image: va_cam_tras:latest
+    container_name: va_cam_tras
+    # Rede do host: ROS 2 (DDS) e a câmara USB comportam-se como processo local.
+    network_mode: host
+    # Acesso direto aos dispositivos USB/vídeo (/dev/video*).
+    privileged: true
+    env_file:
+      - .env
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_X11_NO_MITSHM=1              # evita que o image_view/rviz rebentem sem janela
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+    volumes:
+      - /dev:/dev                       # dispositivos de vídeo
+      - /tmp/.X11-unix:/tmp/.X11-unix   # para o rviz mostrar janela
+      - ./config:/ws/config             # editar usb_cam.yaml SEM reconstruir (basta reiniciar)
+      - ${DATA_DIR:-./bags}:/data       # ONDE OS BAGS SÃO GRAVADOS (por omissão: pasta ./bags)
+    # Mantém o contentor vivo a publicar a câmara.
+    command: ros2 launch /ws/launch/camera_tras.launch.py
+
+  # 2.º serviço: nó de processamento (deteção de peões ao vivo).
+  # Arranca junto com a câmara no 'docker compose up' (driver + processamento,
+  # como o enunciado pede). Usa a MESMA imagem já construída pelo serviço camera.
+  processamento:
+    image: va_cam_tras:latest
+    container_name: va_proc_tras
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+    depends_on:
+      - camera
+    command: python3 /ws/nodes/deteta_agentes.py
+
+  # Serviço de gravação (opcional, alternativa aos scripts).
+  # NÃO arranca no 'docker compose up' (está num profile). Com a câmara já a
+  # correr, grava com:
+  #     docker compose run --rm gravar
+  #     PERCURSO=percurso2 docker compose run --rm gravar   (outro nome)
+  # Ctrl+C para terminar. (Este serviço não abre a janela de vídeo; para isso
+  # usa o ./scripts/gravar.sh ou o ./scripts/ver_rviz.sh.)
+  gravar:
+    image: va_cam_tras:latest
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - PERCURSO=${PERCURSO:-percurso1}
+    volumes:
+      - ${DATA_DIR:-./bags}:/data
+    profiles:
+      - gravar
+    command: >
+      bash -lc "source /opt/ros/jazzy/setup.bash && cd /data &&
+      ros2 bag record -s mcap
+      -o g02_camtras_$$(date +%Y%m%d_%H%M%S)_$$PERCURSO
+      /atlascar2/camera_tras/image_raw/compressed
+      /atlascar2/camera_tras/camera_info
+      /tf /tf_static"
+
+  # ======================= RGB-D (COR + PROFUNDIDADE) =======================
+  # Câmara traseira com PROFUNDIDADE, via driver Orbbec (imagem Dockerfile.rgbd).
+  # NÃO arranca no 'docker compose up' normal — está no profile 'rgbd':
+  #   docker compose --profile rgbd build      # 1.ª vez (compila o driver; demora)
+  #   docker compose --profile rgbd up         # arranca a câmara RGB-D
+  #   ./scripts/gravar_rgbd.sh percurso1        # (noutro terminal) grava cor+profundidade
+  camera_rgbd:
+    build:
+      context: .
+      dockerfile: Dockerfile.rgbd
+    image: va_cam_tras_rgbd:latest
+    container_name: va_cam_tras_rgbd
+    network_mode: host
+    privileged: true
+    env_file:
+      - .env
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_X11_NO_MITSHM=1
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+    volumes:
+      - /dev:/dev                       # USB/vídeo + dispositivo de profundidade
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ./config:/ws/config
+      - ${DATA_DIR:-./bags}:/data
+    profiles:
+      - rgbd
+    command: >
+      bash -lc "source /opt/ros/jazzy/setup.bash &&
+      source /ws/orbbec_ws/install/setup.bash &&
+      ros2 launch /ws/launch/camera_tras_rgbd.launch.py"

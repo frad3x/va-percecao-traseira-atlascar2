@@ -1,0 +1,44 @@
+# Imagem RGB-D: ROS 2 Jazzy + driver Orbbec (OrbbecSDK_ROS2) para a PROFUNDIDADE
+# da Astra Pro. É construída à parte da imagem de cor (Dockerfile) porque o
+# driver é compilado da fonte e demora. Usa-se só quando queres profundidade.
+#
+# Construir/gravar:
+#   docker compose --profile rgbd build
+#   docker compose --profile rgbd up          # arranca a câmara RGB-D
+#   ./scripts/gravar_rgbd.sh percurso1         # (noutro terminal) grava cor+profundidade
+#
+# NOTA: compila o OrbbecSDK_ROS2 da fonte. Se os docentes derem uma imagem/driver
+# próprios, troca por esses. Confirma o suporte da Astra Pro na versão do SDK.
+FROM ros:jazzy-ros-base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git cmake build-essential pkg-config \
+      libgflags-dev nlohmann-json3-dev libgoogle-glog-dev \
+      libusb-1.0-0-dev libeigen3-dev \
+      ros-jazzy-image-transport ros-jazzy-image-transport-plugins \
+      ros-jazzy-image-publisher ros-jazzy-camera-info-manager \
+      ros-jazzy-diagnostic-updater ros-jazzy-rosbag2-storage-mcap \
+      ros-jazzy-image-view ros-jazzy-rviz2 ros-jazzy-tf2-ros \
+      v4l-utils procps python3-opencv udev \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- driver Orbbec (compilado da fonte) ---
+WORKDIR /ws/orbbec_ws/src
+RUN git clone --depth 1 https://github.com/orbbec/OrbbecSDK_ROS2.git
+WORKDIR /ws/orbbec_ws
+RUN . /opt/ros/jazzy/setup.sh && \
+    apt-get update && rosdep update && \
+    rosdep install --from-paths src --ignore-src -r -y || true && \
+    colcon build --event-handlers console_direct+ && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /ws
+COPY launch/  launch/
+COPY config/  config/
+COPY scripts/ scripts/
+RUN chmod +x scripts/*.sh || true
+
+# Sourcing do ROS + overlay do driver em sessões bash.
+RUN echo "source /opt/ros/jazzy/setup.bash" >> /root/.bashrc && \
+    echo "source /ws/orbbec_ws/install/setup.bash" >> /root/.bashrc
+CMD ["bash"]

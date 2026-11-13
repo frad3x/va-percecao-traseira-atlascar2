@@ -1,0 +1,17 @@
+# Ambiente Python do projeto — Python 3.12 (recomendado; 3.14 ainda não tem wheels
+# de PyTorch-CUDA nem Open3D). GPU NVIDIA recomendada.
+#
+# PyTorch com CUDA (RTX 50xx / Blackwell -> cu128) instala-se ANTES, do índice oficial:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+# (confirmar com: python -c "import torch; print(torch.cuda.is_available())")
+#
+# O resto:
+ultralytics>=8.4        # YOLO (deteção + rastreio ByteTrack) — traz também opencv/numpy
+opencv-python>=4.10
+numpy>=1.26
+matplotlib>=3.8
+lap>=0.5                # tracker ByteTrack do Ultralytics
+open3d>=0.18            # perceção 3D / estacionamento
+PySide6>=6.6            # interface do player (Qt); se faltar, recai p/ OpenCV
+mcap>=1.1               # ler rosbag2 MCAP sem ROS
+mcap-ros2-support>=0.5
