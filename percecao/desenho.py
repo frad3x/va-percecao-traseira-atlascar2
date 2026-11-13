@@ -22,8 +22,10 @@ Camadas (de baixo para cima):
   6) Mini VISTA DE CIMA (canto superior direito) com as linhas E os objetos.
   7) Tira com os últimos SINAIS reconhecidos (recorte + nome), no canto inferior esquerdo.
 """
+import os
 import unicodedata
 from collections import OrderedDict
+from functools import lru_cache
 
 import cv2
 import numpy as np
@@ -255,79 +257,169 @@ def _marcador_seguidor(img, bb, cor, e):
 
 
 # ================================ painel (HUD) ================================
-def _painel(img, res, seg, ttc_risco, e):
-    fs = 0.48 * e
-    lh = int(24 * e)
-    x0, y0 = int(10 * e), int(10 * e)
-    largura = int(370 * e)
-    linhas_txt = []                               # (lista de (texto, cor))
+# Desenhado com o PIL (letra TrueType suavizada, cantos redondos) e depois misturado na
+# imagem — o putText do OpenCV só tem letra "de pixel" e sem acentos.
+UA_VERDE = (146, 212, 0)                 # cores em RGB (PIL)
+P_AMBAR, P_VERMELHO, P_CINZA = (243, 178, 27), (240, 89, 42), (140, 140, 140)
+P_BRANCO, P_TEXTO2 = (245, 245, 245), (165, 165, 165)
+P_GRUPO = {"veic": (30, 160, 255), "duas_rodas": (255, 128, 0), "peoes": (255, 230, 0),
+           "sinais": (220, 60, 220)}
+P_ESTADO = {"ok": ("SEGURO", UA_VERDE), "atencao": ("PERTO", P_AMBAR),
+            "perigo": ("PERIGO", P_VERMELHO), "livre": ("LIVRE", P_CINZA)}
+P_MUDAR = {"livre": UA_VERDE, "proibido": P_AMBAR, "ocupado": P_VERMELHO}
 
+
+@lru_cache(maxsize=32)
+def _fonte(tam, negrito=False):
+    from PIL import ImageFont
+    nomes = (["segoeuib.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf"] if negrito else
+             ["segoeui.ttf", "arial.ttf", "DejaVuSans.ttf"])
+    for pasta in ("C:/Windows/Fonts", "/usr/share/fonts/truetype/dejavu", ""):
+        for n in nomes:
+            try:
+                return ImageFont.truetype(os.path.join(pasta, n) if pasta else n, tam)
+            except OSError:
+                pass
+    try:
+        return ImageFont.load_default(size=tam)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def _pill(d, x, y, txt, cor, f, alt, cheia=False):
+    """Pastilha arredondada: fundo da cor (translúcido) e texto na cor. Devolve a largura."""
+    w = int(d.textlength(txt, font=f)) + alt
+    fundo = cor + ((255,) if cheia else (60,))
+    d.rounded_rectangle([x, y, x + w, y + alt], radius=alt // 2, fill=fundo,
+                        outline=None if cheia else cor + (150,), width=1)
+    d.text((x + w / 2, y + alt / 2), txt, font=f, fill=(15, 15, 15) if cheia else cor,
+           anchor="mm")
+    return w
+
+
+def _triangulo_pil(d, cx, cy, t, cor):
+    """Triângulo de aviso (aula 5, ex. 4b): amarelo = 1 linha, vermelho = nenhuma."""
+    d.polygon([(cx, cy - t), (cx - t, cy + 0.8 * t), (cx + t, cy + 0.8 * t)], fill=cor)
+    d.text((cx, cy + 0.15 * t), "!", font=_fonte(max(8, int(1.2 * t)), True),
+           fill=(15, 15, 15), anchor="mm")
+
+
+def _painel(img, res, seg, ttc_risco, e):
+    from PIL import Image, ImageDraw
+    H, W = img.shape[:2]
+    k = max(e, 0.72)                              # escala (720p = 1); mínimo p/ ler em 360p
+    pad, pw = int(14 * k), int(340 * k)
+    f_tit, f_lab = _fonte(int(11 * k), True), _fonte(int(12 * k))
+    f_val, f_big = _fonte(int(13 * k), True), _fonte(int(24 * k), True)
+    f_pill = _fonte(int(11 * k), True)
+    alt_p = int(20 * k)
+
+    tela = Image.new("RGBA", (pw, int(320 * k)), (0, 0, 0, 0))
+    d = ImageDraw.Draw(tela)
+    x, y = pad + int(4 * k), pad
+
+    # --- cabeçalho + estado das linhas (triângulo da aula 5) ---
+    d.text((x, y), "RETAGUARDA", font=f_tit, fill=UA_VERDE)
     lin = res.get("linhas") or {}
-    n = lin.get("n", 0) if lin else None
     if lin:
-        tipos = seg.get("tipos_linha")             # lado do CARRO (se houver análise)
-        if tipos:
-            te, td = tipos.get("esquerda") or "-", tipos.get("direita") or "-"
-        else:                                      # senão, lado da imagem
-            te = (lin.get("esq") or {}).get("tipo") or "-"
-            td = (lin.get("dir") or {}).get("tipo") or "-"
-        linhas_txt.append([("LINHAS ", AMARELO), (f"esq: {te}  dir: {td}", BRANCO)])
-    contagens = []
-    for g in ("veic", "duas_rodas", "peoes", "sinais"):
-        contagens.append((f"■{len((res.get(g) or {}).get('bb', []))} {NOME_GRUPO[g]}  ",
-                          COR_GRUPO[g]))
-    linhas_txt.append(contagens)
+        n = lin.get("n", 0)
+        if n < 2:
+            txt, cor = ("1 linha", P_AMBAR) if n == 1 else ("sem linhas", P_VERMELHO)
+            wl = int(d.textlength(txt, font=f_pill)) + alt_p
+            xr = pw - pad - wl
+            _pill(d, xr, y - int(3 * k), txt, cor, f_pill, alt_p)
+            _triangulo_pil(d, xr - int(14 * k), y + int(7 * k), int(8 * k), cor)
+    y += int(24 * k)
+
+    # --- linhas da faixa (lado do carro) ---
+    if lin:
+        tipos = seg.get("tipos_linha") or {
+            "esquerda": (lin.get("esq") or {}).get("tipo"), "direita": (lin.get("dir") or {}).get("tipo")}
+        d.text((x, y + alt_p / 2), "Linhas", font=f_lab, fill=P_TEXTO2, anchor="lm")
+        xx = x + int(78 * k)
+        for lado, ab in (("esquerda", "Esq"), ("direita", "Dir")):
+            t = tipos.get(lado)
+            if t:
+                xx += _pill(d, xx, y, f"{ab} · {'contínua' if t == 'continua' else t}", P_BRANCO,
+                            f_pill, alt_p) + int(6 * k)
+            else:
+                xx += _pill(d, xx, y, f"{ab} · —", P_CINZA, f_pill, alt_p) + int(6 * k)
+        y += alt_p + int(10 * k)
+
+    # --- contagens por grupo ---
+    xx = x
+    for g, nome in (("veic", "veíc."), ("duas_rodas", "2 rodas"), ("peoes", "peões"), ("sinais", "sinais")):
+        nn = len((res.get(g) or {}).get("bb", []))
+        cor = P_GRUPO[g] if nn else P_CINZA
+        r = int(4 * k)
+        d.ellipse([xx, y + int(8 * k) - r, xx + 2 * r, y + int(8 * k) + r], fill=cor)
+        xx += 2 * r + int(5 * k)
+        d.text((xx, y + int(8 * k)), str(nn), font=f_val, fill=P_BRANCO if nn else P_CINZA, anchor="lm")
+        xx += int(d.textlength(str(nn), font=f_val)) + int(4 * k)
+        d.text((xx, y + int(8 * k)), nome, font=f_lab, fill=P_TEXTO2, anchor="lm")
+        xx += int(d.textlength(nome, font=f_lab)) + int(13 * k)
+    y += int(26 * k)
 
     if seg:
+        d.line([(x, y), (pw - pad, y)], fill=(255, 255, 255, 40), width=1)
+        y += int(10 * k)
+        # --- veículo atrás ---
         s = seg.get("seguidor")
         est = seg.get("estado_dist", "livre")
-        cor = COR_ESTADO.get(est, BRANCO)
+        rot, cor = P_ESTADO.get(est, P_ESTADO["livre"])
+        d.text((x, y), "Veículo atrás", font=f_lab, fill=P_TEXTO2)
+        _pill(d, pw - pad - int(d.textlength(rot, font=f_pill)) - alt_p, y - int(2 * k), rot, cor,
+              f_pill, alt_p, cheia=True)
+        y += int(20 * k)
         if s:
-            txt = f"{s['d']:.0f} m"
+            dist = ("<" if s.get("cortada") else "") + f"{s['d']:.0f} m"
+            d.text((x, y), dist, font=f_big, fill=cor)
+            xx = x + int(d.textlength(dist, font=f_big)) + int(12 * k)
+            extra = []
             if s.get("ttc") is not None and np.isfinite(s["ttc"]):
-                txt += f"  TTC {s['ttc']:.1f}s"
+                extra.append(f"TTC {s['ttc']:.1f} s")
             if s.get("vrel") is not None and abs(s["vrel"]) > 0.5:
-                txt += f"  {'+' if s['vrel'] > 0 else ''}{3.6 * s['vrel']:.0f} km/h"
-            linhas_txt.append([("ATRAS ", AMARELO), (txt, cor)])
+                extra.append(f"{'+' if s['vrel'] > 0 else '−'}{abs(3.6 * s['vrel']):.0f} km/h")
+            if extra:
+                d.text((xx, y + int(15 * k)), "  ·  ".join(extra), font=f_lab, fill=P_TEXTO2, anchor="lm")
+            y += int(34 * k)
         else:
-            linhas_txt.append([("ATRAS ", AMARELO), ("faixa livre", COR_ESTADO["livre"])])
+            d.text((x, y), "nenhum na nossa faixa", font=f_lab, fill=P_CINZA)
+            y += int(22 * k)
+
+        # --- mudança de faixa ---
         mud = seg.get("mudanca", {})
         if mud:
-            partes = [("MUDAR FAIXA ", AMARELO)]
-            for lado, seta in (("esquerda", "<ESQ "), ("direita", "DIR> ")):
+            d.text((x, y + alt_p / 2), "Mudar faixa", font=f_lab, fill=P_TEXTO2, anchor="lm")
+            xx = x + int(78 * k)
+            for lado, seta in (("esquerda", "← Esq"), ("direita", "Dir →")):
                 st, _ = mud.get(lado, ("livre", ""))
-                c = {"livre": VERDE, "proibido": AMBAR, "ocupado": VERMELHO}[st]
-                partes.append((f"{seta}{st}  ", c))
-            linhas_txt.append(partes)
+                xx += _pill(d, xx, y, f"{seta} · {st}", P_MUDAR[st], f_pill, alt_p) + int(6 * k)
+            y += alt_p + int(10 * k)
+
+        # --- estacionamento ---
         if seg.get("livre_atras") is not None:
-            linhas_txt.append([("LIVRE ATRAS ", AMARELO), (f"{seg['livre_atras']:.1f} m", BRANCO)])
+            d.text((x, y + alt_p / 2), "Espaço livre", font=f_lab, fill=P_TEXTO2, anchor="lm")
+            d.text((x + int(78 * k), y + alt_p / 2), f"{seg['livre_atras']:.1f} m", font=f_val,
+                   fill=P_BRANCO, anchor="lm")
+            y += alt_p + int(6 * k)
 
-    alt = lh * len(linhas_txt) + int(10 * e)
-    _caixa_translucida(img, x0, y0, x0 + largura, y0 + alt)
-    cv2.rectangle(img, (x0, y0), (x0 + largura, y0 + alt), (90, 90, 90), 1)
-    y = y0 + lh
-    for partes in linhas_txt:
-        x = x0 + int(8 * e)
-        for txt, cor in partes:
-            if txt.startswith("■"):              # quadrado de cor (legenda)
-                q = int(10 * e)
-                cv2.rectangle(img, (x, y - q), (x + q, y), cor, -1)
-                x += q + 4
-                x += _texto(img, txt[1:], (x, y), BRANCO, fs)
-            else:
-                x += _texto(img, txt, (x, y), cor, fs)
-        y += lh
-    if n is not None and n < 2:                        # aula 5, ex. 4b
-        _triangulo(img, x0 + largura - int(22 * e), y0 + int(18 * e), int(13 * e),
-                   AMARELO if n == 1 else VERMELHO)
+    ph = min(y + pad - int(4 * k), tela.height)
+    # cartão: fundo preto translúcido, cantos redondos, faixa verde UA à esquerda
+    fundo = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
+    fd = ImageDraw.Draw(fundo)
+    fd.rounded_rectangle([0, 0, pw - 1, ph - 1], radius=int(12 * k), fill=(10, 10, 10, 200),
+                         outline=(255, 255, 255, 30))
+    fd.rounded_rectangle([0, 0, int(4 * k), ph - 1], radius=int(2 * k), fill=UA_VERDE + (255,))
+    fundo.alpha_composite(tela.crop((0, 0, pw, ph)))
 
-
-def _triangulo(img, cx, cy, t, cor):
-    tri = np.array([[cx, cy - t], [cx - t, cy + int(0.8 * t)], [cx + t, cy + int(0.8 * t)]], np.int32)
-    cv2.fillPoly(img, [tri], cor)
-    cv2.polylines(img, [tri], True, PRETO, 2, cv2.LINE_AA)
-    cv2.putText(img, "!", (cx - max(2, t // 6), cy + int(0.6 * t)), cv2.FONT_HERSHEY_DUPLEX,
-                t / 18.0, PRETO, max(2, t // 7), cv2.LINE_AA)
+    x0, y0 = int(12 * k), int(12 * k)
+    x1, y1 = min(W, x0 + pw), min(H, y0 + ph)
+    rgba = np.asarray(fundo)[: y1 - y0, : x1 - x0].astype(np.float32)
+    a = rgba[:, :, 3:4] / 255.0
+    roi = img[y0:y1, x0:x1].astype(np.float32)
+    roi[:] = roi * (1 - a) + rgba[:, :, 2::-1] * a          # RGB -> BGR
+    img[y0:y1, x0:x1] = roi.astype(np.uint8)
 
 
 def _avisos(img, alertas, e):
