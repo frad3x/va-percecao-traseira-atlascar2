@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>va_hello</name>
+  <version>0.1.0</version>
+  <description>Primeira app de VA: LiDAR 2D simulado + obstáculo mais próximo</description>
+  <maintainer email="grupo00@ua.pt">Grupo 00</maintainer>
+  <license>MIT</license>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>tf2_ros_py</exec_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
+

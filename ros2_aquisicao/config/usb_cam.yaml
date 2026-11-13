@@ -1,0 +1,33 @@
+# Parâmetros do driver da câmara (usb_cam). O '/**' aplica a qualquer nome de nó.
+#
+# >>> O QUE PODES PRECISAR DE AJUSTAR <<<
+#  - video_device: qual é a câmara. Descobre com:  ls /dev/video*   ou
+#                  v4l2-ctl --list-devices   (a Astra Pro "color" costuma ser
+#                  /dev/video0 ou /dev/video2). Experimenta até veres imagem.
+#  - pixel_format: 'mjpeg2rgb' permite 1280x720@30. Se não der imagem, tenta 'yuyv'
+#                  (pode exigir baixar a resolução, p.ex. 640x480).
+#  - image_width/height/framerate: resolução e taxa.
+/**:
+  ros__parameters:
+    video_device: "/dev/video0"
+    # TAXA DE FRAMES: 15 chega e sobra para perceção (linhas/veículos/peões) e
+    # faz ficheiros ~2x mais pequenos que 30. Sobe para 30.0 só se precisares.
+    framerate: 15.0
+    image_width: 1280
+    image_height: 720
+    pixel_format: "mjpeg2rgb"
+    io_method: "mmap"
+    # TAMANHO DO FICHEIRO: qualidade do JPEG do tópico .../image_raw/compressed
+    # (1-100). É isto que é gravado. 40 dá ficheiros ~3x mais pequenos que o
+    # valor por omissão (~80), com perda de qualidade quase impercetível.
+    # Baixa mais (ex. 30) se ainda quiseres ficheiros menores.
+    image_raw:
+      compressed:
+        jpeg_quality: 40
+    # Identificação/calibração
+    camera_frame_id: "camera_tras_link"
+    camera_name: "camera_tras"
+    # Ficheiro de calibração (intrínsecos). Enquanto não calibrares, fica com
+    # valores a zero -> as imagens gravam na mesma; os intrínsecos é que não
+    # serão válidos. Ver o README (secção calibração).
+    camera_info_url: "file:///ws/config/camera_info.yaml"

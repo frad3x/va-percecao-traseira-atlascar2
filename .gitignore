@@ -1,0 +1,23 @@
+# Ambiente Python (recria-se com requirements.txt — ver README)
+python/.venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Definições locais (caminhos pessoais)
+.vscode/
+ros2_aquisicao/.env
+
+# Pesos base do YOLO: descarregam-se sozinhos na 1.ª execução
+/yolo*.pt
+
+# Caches que o Ultralytics recria
+*.cache
+
+# Saídas geradas ao correr o main.py
+deteccoes.csv
+linhas.csv
+dados/resultado_percecao.mp4
+dados/frames_bag.avi
+dados/graf_*.png
+dados/nuvens/

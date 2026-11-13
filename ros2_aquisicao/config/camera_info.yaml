@@ -1,0 +1,41 @@
+# Calibração da câmara (intrínsecos). TEMPLATE - a preencher após calibração.
+# Enquanto estiver a zeros, as imagens gravam-se na mesma, mas o monoCamera do
+# MATLAB não terá intrínsecos válidos (usa então o método de linhas 'rede', que
+# não precisa de calibração, ou mede a montagem).
+#
+# Como obter os valores reais (duas opções):
+#  1) No Ubuntu, com a câmara a publicar, correr a calibração do ROS com um
+#     tabuleiro de xadrez:
+#       ros2 run camera_calibration cameracalibrator \
+#         --size 8x6 --square 0.025 \
+#         --ros-args -r image:=/atlascar2/camera_tras/image_raw \
+#                    -r camera:=/atlascar2/camera_tras
+#     (ajusta --size ao teu tabuleiro: nº de cantos internos; --square = lado em m)
+#     No fim, "Save" escreve um ficheiro com estes campos: copia-os para aqui.
+#  2) Ou calibrar no MATLAB (Camera Calibrator) e passar os valores.
+image_width: 1280
+image_height: 720
+camera_name: camera_tras
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [0.0, 0.0, 0.0,
+         0.0, 0.0, 0.0,
+         0.0, 0.0, 1.0]
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.0, 0.0, 0.0, 0.0, 0.0]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0,
+         0.0, 1.0, 0.0,
+         0.0, 0.0, 1.0]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [0.0, 0.0, 0.0, 0.0,
+         0.0, 0.0, 0.0, 0.0,
+         0.0, 0.0, 1.0, 0.0]

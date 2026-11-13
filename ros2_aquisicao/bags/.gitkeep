@@ -1,0 +1,2 @@
+# As gravações (rosbag2 MCAP) são guardadas aqui por omissão.
+# Para guardar noutro sítio (ex. um SSD), define DATA_DIR no .env.
