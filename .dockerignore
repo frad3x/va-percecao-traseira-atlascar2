@@ -1,0 +1,13 @@
+# Contexto do 'docker build' (ros2_aquisicao/Dockerfile) = pasta do projeto.
+# Só entra o necessário (os dados e o ambiente Python ficam de fora).
+*
+!pyproject.toml
+!README.md
+!percecao/
+!modelos/
+!ros2_aquisicao/src/
+!ros2_aquisicao/config/
+!ros2_aquisicao/launch/
+!ros2_aquisicao/urdf/
+!ros2_aquisicao/scripts/
+**/__pycache__

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!--
+  Robô "mínimo" só com o base_link e a câmara traseira — para publicar o /tf_static
+  da câmara quando o URDF completo do carro ainda não está a correr.
+  Os argumentos vêm do .env (CAM_X, CAM_Y, CAM_Z, CAM_ROLL, CAM_PITCH, CAM_YAW).
+-->
+<robot name="atlascar2_camera_tras" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="x" default="-0.50"/>
+  <xacro:arg name="y" default="0.0"/>
+  <xacro:arg name="z" default="1.10"/>
+  <xacro:arg name="roll" default="0.0"/>
+  <xacro:arg name="pitch" default="0.0"/>
+  <xacro:arg name="yaw" default="3.14159"/>
+
+  <xacro:include filename="camera_tras.urdf.xacro"/>  <!-- relativo a esta pasta -->
+
+  <link name="base_link"/>
+  <xacro:camera_tras parent="base_link" x="$(arg x)" y="$(arg y)" z="$(arg z)"
+                     roll="$(arg roll)" pitch="$(arg pitch)" yaw="$(arg yaw)"/>
+</robot>

@@ -5,8 +5,11 @@ Este software **grava** os dados da câmara traseira (Orbbec Astra Pro) em
 de Docker. Só precisas de ter o **Docker** instalado no portátil — o resto vive
 dentro do contentor.
 
-> O processamento (MATLAB/Python) é a outra parte do projeto, na pasta `../matlab`
-> e `../python`. Aqui é **só gravar**. A pasta gravada é depois levada para o MATLAB.
+> Esta pasta tem **dois contentores**: a **aquisição** (driver da câmara + gravação) e a
+> **perceção ao vivo** (pacotes ROS 2 `va_percecao_msgs` e `va_percecao`, que subscrevem a
+> imagem, publicam o que detetam e reagem — ver "Perceção ao vivo (ROS 2)" abaixo).
+> A aplicação de processamento **off-line** (sobre a gravação, com player e CSV) está na
+> pasta do projeto (`../main.py` ou `python -m percecao`) e corre também no Windows.
 
 ---
 
@@ -20,13 +23,14 @@ dentro do contentor.
    ```
    Põe o dispositivo certo em `config/usb_cam.yaml` (`video_device`), p.ex.
    `/dev/video0` ou `/dev/video2`.
-3. Copiar o ficheiro de configuração e preencher:
+3. **(Opcional)** Copiar o ficheiro de configuração e preencher. Sem ele, o
+   `docker compose up` funciona na mesma com os valores por omissão:
    ```bash
    cp .env.example .env
    ```
    No `.env` mete:
    - `CAM_Z` = **altura** da câmara ao solo (m) e `CAM_PITCH` = inclinação (rad;
-     5° ≈ 0.087). Estes valores vão para a transformação do carro.
+     5° ≈ 0.087). Estes valores vão para o URDF da câmara (`urdf/`).
    - `DATA_DIR` **(opcional)** = onde guardar as gravações. Por omissão vão para
      a pasta **`./bags`** (aqui ao lado do código). Só defines `DATA_DIR` se
      quiseres gravar noutro sítio, p.ex. um SSD (`/media/teu_user/VA_SSD/data`).
@@ -79,34 +83,89 @@ Quando acabares, Ctrl+C no terminal da câmara para desligar tudo.
 
 ---
 
-## Nó de processamento (2.º serviço)
+## Perceção ao vivo (ROS 2)
 
-O `docker compose up` arranca **dois serviços** (como o enunciado pede): o
-`camera` (driver) e o `processamento` (nó ROS 2). O nó `deteta_agentes` subscreve
-a imagem, deteta **peões** (detetor HOG clássico do OpenCV, leve) e publica:
-- `/atlascar2/camera_tras/num_agentes` — número de peões (std_msgs/Int32)
-- `/atlascar2/camera_tras/agentes/image_raw/compressed` — imagem **anotada**
-
-Para veres a imagem anotada ao vivo:
+O `docker compose up` arranca a câmara **e** a perceção. Na **1.ª vez** constrói as
+imagens (a da perceção traz o PyTorch — demora e ocupa vários GB):
 ```bash
-docker compose exec camera bash -lc "source /opt/ros/jazzy/setup.bash && \
-  ros2 run image_view image_view --ros-args \
-  -r image:=/atlascar2/camera_tras/agentes/image_raw/compressed \
-  -p image_transport:=compressed"
+docker compose build
+docker compose up                                        # só CPU (yolo11n, 640)
+docker compose -f compose.yaml -f compose.gpu.yaml up    # GPU NVIDIA (no .env: MODELO=yolo11m.pt, IMGSZ=1280)
+RVIZ=true docker compose up                              # + rviz: imagem anotada e agentes em 3D
 ```
 
-> Isto é a versão **ao vivo mínima**. O processamento a sério (YOLO, linhas,
-> sinais, trajetória) é feito **off-line em MATLAB** (`../matlab`), que é mais
-> completo. Este nó existe para cumprir a arquitetura driver + processamento.
+```
+driver (usb_cam) --image_raw/compressed--> percecao --agentes/pavimento/seguranca--> reacao --> acao, aviso
+                                              |                                        ^
+                                              +--> imagem_anotada, marcadores (rviz)   +-- pisca, marcha_atras
+```
+
+### Pacotes (`src/`)
+| Pacote | O que tem |
+|---|---|
+| `va_percecao_msgs` | mensagens `Agente(s)`, `LinhaFaixa`, `Marcacao`, `Pavimento`, `Aviso`, `EstadoSeguranca`, `Acao` |
+| `va_percecao` | nós `percecao` e `reacao`; launch `sistema`, `percecao`, `bag`; `config/percecao.yaml`; rviz |
+
+O nó `percecao` usa **o mesmo núcleo** da aplicação off-line (pacote Python
+`percecao`, classe `Pipeline`): YOLO11 + ByteTrack, linhas e marcações, sinais
+treinados, distância/TTC e avisos. Trata sempre a imagem **mais recente**: se o
+modelo for mais lento que a câmara, salta imagens em vez de acumular atraso.
+
+### Tópicos (namespace `/atlascar2/camera_tras`)
+| Tópico | Tipo | |
+|---|---|---|
+| `image_raw/compressed` | `sensor_msgs/CompressedImage` | **subscreve** (vem do driver) |
+| `/atlascar2/velocidade` | `std_msgs/Float32` (m/s) | **subscreve**, opcional → regra dos 2 s |
+| `percecao/agentes` | `va_percecao_msgs/Agentes` | veículos, duas rodas, peões, sinais: ID, distância, faixa (do carro), TTC |
+| `percecao/deteccoes` | `vision_msgs/Detection2DArray` | o mesmo em tipos normalizados (para a Parte 2) |
+| `percecao/pavimento` | `va_percecao_msgs/Pavimento` | linhas da faixa + tipo, passadeiras, linhas de paragem |
+| `percecao/seguranca` | `va_percecao_msgs/EstadoSeguranca` | distância/TTC ao veículo de trás, mudar de faixa, espaço livre, avisos |
+| `percecao/marcadores` | `visualization_msgs/MarkerArray` | agentes em 3D (rviz) |
+| `percecao/imagem_anotada/compressed` | `sensor_msgs/CompressedImage` | imagem com o overlay |
+| `/atlascar2/pisca` | `std_msgs/String` | **subscreve** (`reacao`): `esquerda` / `direita` / `""` |
+| `/atlascar2/marcha_atras` | `std_msgs/Bool` | **subscreve** (`reacao`) |
+| `reacao/acao` | `va_percecao_msgs/Acao` | nível + comandos (`LIGAR_QUATRO_PISCAS`, `NAO_MUDAR_ESQUERDA`, `PARAR_MARCHA_ATRAS`, …) |
+| `reacao/aviso` | `std_msgs/String` | texto para o condutor, só quando muda |
+
+Ver e testar (noutro terminal: `docker compose exec percecao bash`):
+```bash
+ros2 topic echo /atlascar2/camera_tras/reacao/aviso
+ros2 topic echo /atlascar2/camera_tras/percecao/seguranca
+ros2 topic pub --once /atlascar2/pisca std_msgs/String "{data: esquerda}"    # simula o pisca
+ros2 topic pub --once /atlascar2/marcha_atras std_msgs/Bool "{data: true}"   # simula a marcha-atrás
+```
+Os parâmetros (modelo, limiares, tópicos) estão em `src/va_percecao/config/percecao.yaml`.
+
+### Sobre uma gravação (sem câmara)
+O bag publica a imagem gravada e os nós reagem como se fosse ao vivo:
+```bash
+docker compose build percecao
+BAG=g02_camtras_20261104_160818_percurso1 docker compose run --rm percecao_bag
+```
+(`BAG` é a pasta dentro de `DATA_DIR`, por omissão `./bags`.)
+
+### Um Dockerfile, duas etapas
+Tudo vem do `Dockerfile` desta pasta (regra do enunciado: nada se instala no Ubuntu
+além do Docker). O serviço `camera` usa a etapa **`driver`** (leve: `usb_cam`, gravação,
+URDF); o serviço `percecao` usa a etapa **`percecao`** = `driver` + o nosso pacote ROS 2 +
+o núcleo Python com o YOLO. Quem só precisar da câmara (Parte 2) usa só a etapa `driver`.
+
+### URDF da câmara
+`urdf/camera_tras.urdf.xacro` é o **fragmento URDF** a contribuir para o URDF comum do carro
+(macro `camera_tras`: `camera_tras_link` e `camera_tras_optical_frame`, presos ao
+`base_link`). Enquanto o URDF completo não corre, o serviço `camera` publica-o sozinho
+(`urdf/camera_tras_isolada.urdf.xacro` + `robot_state_publisher`) com a pose do `.env`.
 
 ## O que é gravado
 
 - `/atlascar2/camera_tras/image_raw/compressed` — a imagem (comprimida)
 - `/atlascar2/camera_tras/camera_info` — parâmetros da câmara
-- `/tf` e `/tf_static` — a posição da câmara no carro
+- `/tf` e `/tf_static` — a posição da câmara no carro (do URDF da câmara)
 
-**É a pasta gravada que levas para o MATLAB**: copia-a para
-`../dados/bags/` no teu PC Windows e segue o `../matlab/README.md`.
+Para a analisar **off-line** (player, CSV, gráficos), copia a pasta para
+`../dados/bags/` no PC e corre a aplicação: `python -m percecao dados/bags/<pasta>`
+(ou mete-a no `FONTE` do `main.py`). Também a podes reproduzir com a perceção ao
+vivo (ver "Sobre uma gravação" acima).
 
 ---
 
@@ -124,8 +183,8 @@ ros2 run camera_calibration cameracalibrator \
 Ajusta `--size` (nº de cantos internos do teu xadrez) e `--square` (lado em m).
 No fim, copia os valores para `config/camera_info.yaml`.
 
-> Alternativa sem calibrar: no MATLAB usa `METODO_LINHAS='rede'` (linhas por rede
-> neuronal, não precisam de calibração).
+> A perceção não precisa desta calibração: as linhas e as distâncias usam um modelo
+> de chão plano com o horizonte estimado automaticamente.
 
 ---
 
@@ -152,8 +211,8 @@ docker compose --profile rgbd up          # arranca a câmara RGB-D (cor + profu
 > Se a Astra Pro não for suportada pela versão do SDK, usa o driver que os docentes
 > indicarem (troca em `Dockerfile.rgbd` / `launch/camera_tras_rgbd.launch.py`).
 
-**Depois**, no PC do MATLAB: converte a profundidade do bag em nuvens de pontos e
-analisa (ver `../matlab/README.md` → "Apoio ao estacionamento"):
+**Depois**, no PC do processamento: converte a profundidade do bag em nuvens de
+pontos e analisa (ver `../README.md` → "Apoio ao estacionamento"):
 ```bash
 python -m percecao.profundidade --fonte <pasta_bag> --saida_dir dados/nuvens
 ```

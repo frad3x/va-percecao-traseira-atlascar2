@@ -1,7 +1,11 @@
 # Perceção — câmara traseira ATLASCAR2 (Tema 2) — versão Python
 
-Processamento e perceção **off-line** dos dados da câmara traseira, **só em Python**
-(migrado do antigo MATLAB+Python). Basta **dar Run no `main.py`**.
+Perceção com a câmara traseira, **em Python**, em duas formas que partilham o mesmo
+núcleo (`percecao/pipeline.py`):
+- **Aplicação off-line** — vídeo, pasta de imagens ou rosbag → player, CSV e gráficos.
+  Basta **dar Run no `main.py`** (ou `python -m percecao <fonte>`). Corre no Windows.
+- **Pacote ROS 2 ao vivo** — o nó `percecao` subscreve a câmara e publica o que deteta;
+  o nó `reacao` reage aos avisos. Ver "ROS 2 — perceção ao vivo" mais abaixo.
 
 Deteta, numa só aplicação, com rastreio e estatísticas:
 - **Linhas da faixa** (clássica, **sem calibração**), com a faixa preenchida no vídeo.
@@ -27,14 +31,26 @@ No fim abre o **player interativo**:
 - **ESPAÇO** play/pausa · **a/d** (ou ←/→) recuar/avançar · **+/−** velocidade ·
   **barra** saltar para qualquer frame · **q** sair.
 
-Saídas: `deteccoes.csv` (todas as caixas), `linhas.csv` (linhas e tipo por frame)
-e gráficos (deteções/frame, TTC).
+Saídas: `deteccoes.csv` (todas as caixas), `linhas.csv` (linhas e tipo por frame),
+`seguranca.csv` (distâncias e avisos por frame) e gráficos (deteções/frame, TTC, distância).
+
+**Linha de comandos** (a mesma aplicação, sem editar o código):
+```bash
+python -m percecao dados/bags/g02_camtras_20261104_160818_percurso1
+python -m percecao video.mp4 --modelo yolo11n.pt --imgsz 640 --vel-kmh 50 --sem-graficos
+python -m percecao --help
+```
+Instalada como pacote (`pip install ".[app]"`) fica também o comando `va-percecao`.
 
 ## Estrutura
 
 | Ficheiro | Papel |
 |---|---|
-| `main.py` | Ponto de entrada — basta dar Run |
+| `main.py` | Ponto de entrada da aplicação off-line — basta dar Run |
+| `percecao/pipeline.py` | **Núcleo**: processa uma imagem (usado pela aplicação e pelo nó ROS) |
+| `percecao/app.py`, `percecao/__main__.py` | A aplicação off-line e a sua linha de comandos |
+| `percecao/seguranca.py` | Distância, faixa de cada agente, avisos (distância de segurança, mudança de faixa, ângulo morto, estacionamento) |
+| `ros2_aquisicao/` | Aquisição (driver + gravação) e pacotes ROS 2 `va_percecao_msgs` / `va_percecao` |
 | `percecao/fontes.py` | Vídeo / imagens / rosbag MCAP (com acesso aleatório p/ o player) |
 | `percecao/detecao.py` | YOLO + rastreio (IDs) → veículos/peões/sinais |
 | `percecao/linhas.py` | Linhas da faixa (método da aula 5: vista de cima + parábolas) |
@@ -175,4 +191,17 @@ ultralytics, opencv, open3d, mcap). Reinstalar: ver `requirements.txt`. Mantém-
 Pasta `ros2_aquisicao/` (corre no PC Ubuntu, ROS 2 em Docker): cor (`docker compose up`)
 e RGB-D (`--profile rgbd`). Ver `ros2_aquisicao/README.md`.
 
+## ROS 2 — perceção ao vivo
+Na mesma pasta, dois pacotes ROS 2 (Jazzy):
+- `va_percecao_msgs` — mensagens (`Agentes`, `Pavimento`, `EstadoSeguranca`, `Acao`, …);
+- `va_percecao` — nó **`percecao`** (subscreve `/atlascar2/camera_tras/image_raw/compressed`
+  e publica agentes, pavimento, estado de segurança, marcadores 3D e imagem anotada) e nó
+  **`reacao`** (subscreve esses avisos + pisca/marcha-atrás e publica a ação: quatro piscas,
+  não mudar de faixa, parar a marcha-atrás, …).
 
+```bash
+cd ros2_aquisicao
+docker compose build && docker compose up                 # câmara + perceção + reação
+BAG=<pasta_do_bag> docker compose run --rm percecao_bag   # o mesmo sobre uma gravação
+```
+Tópicos, parâmetros e testes: `ros2_aquisicao/README.md` → "Perceção ao vivo (ROS 2)".

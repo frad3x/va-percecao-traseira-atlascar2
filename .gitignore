@@ -22,3 +22,12 @@ dados/resultado_percecao.mp4
 dados/frames_bag.avi
 dados/graf_*.png
 dados/nuvens/
+
+# Pesos YOLO descarregados pelo contentor da perceção
+ros2_aquisicao/pesos/*
+!ros2_aquisicao/pesos/.gitkeep
+# Build do ROS 2 (se compilares fora do Docker)
+ros2_aquisicao/build/
+ros2_aquisicao/install/
+ros2_aquisicao/log/
+*.egg-info/

@@ -1,0 +1,33 @@
+# Parâmetros dos nós de perceção e reação (câmara traseira, grupo G6).
+# Edita e reinicia o launch — não é preciso recompilar.
+/atlascar2/camera_tras/percecao:
+  ros__parameters:
+    image_topic: /atlascar2/camera_tras/image_raw/compressed
+    comprimida: true               # false -> subscreve sensor_msgs/Image (raw)
+    velocidade_topic: /atlascar2/velocidade   # std_msgs/Float32 (m/s); "" para desligar
+    # Modelos. Com GPU NVIDIA: yolo11m.pt + 1280. Só CPU: yolo11n.pt + 640.
+    modelo: yolo11m.pt
+    imgsz: 1280
+    conf: 0.25
+    dispositivo: ""                # "" automático | "cpu" | "0"
+    sinais_det: modelos/sinais_det.pt    # relativos à pasta do projeto
+    sinais_cls: modelos/sinais_cls.pt
+    linhas: true
+    linhas_params: "{}"            # JSON, ex. '{"v_base": 0.85}'
+    seguranca_params: "{}"         # JSON, ex. '{"dist_seguranca": 15}'
+    limiar_risco: 4.0              # TTC (s) de risco
+    camara_traseira: true
+    altura_camara: 1.1             # m (igual ao CAM_Z do .env)
+    publicar_imagem: true          # só codifica se alguém estiver a ver o tópico
+    jpeg_qualidade: 70
+    estacionamento: false          # guias de estacionamento no overlay
+
+/atlascar2/camera_tras/reacao:
+  ros__parameters:
+    marcha_atras_topic: /atlascar2/marcha_atras   # std_msgs/Bool
+    pisca_topic: /atlascar2/pisca                 # std_msgs/String: esquerda | direita | ""
+    retencao_s: 1.0
+    timeout_s: 1.5
+    dist_parar: 1.0
+    dist_abrandar: 2.5
+    dist_peao: 4.0
