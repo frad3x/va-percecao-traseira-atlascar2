@@ -9,57 +9,89 @@ Formas de a correr:
   - linha de comandos:  python -m percecao <fonte> [opções]   (ver --help)
   - depois de 'pip install .':  va-percecao <fonte> [opções]
 """
+import datetime
 import json
 import os
 import time
 
 from .pipeline import Config, Pipeline
 
+RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # pasta do projeto
+PASTA_RESULTADOS = os.path.join(RAIZ, "resultados")
 
-def executar(fonte_path, cfg=None, mostrar=True, graficos=True, gravar_video=False,
-             fich_video="dados/resultado_percecao.mp4", max_frames=0, fich_gt="",
-             estacionamento=False):
-    cfg = cfg or Config()
+
+def nova_pasta_resultados(fonte_path):
+    """resultados/<nome da gravação>_<data_hora>/ — uma pasta por análise."""
+    nome = os.path.splitext(os.path.basename(str(fonte_path).rstrip("/\\")))[0] or "analise"
+    pasta = os.path.join(PASTA_RESULTADOS, f"{nome}_{datetime.datetime.now():%Y%m%d_%H%M%S}")
+    os.makedirs(pasta, exist_ok=True)
+    return pasta
+
+
+def processar(fonte, cfg=None, progresso=None, parar=None, gravar_video=False,
+              fich_video="video_anotado.mp4", max_frames=0, estacionamento=False,
+              log=print):
+    """Percorre a fonte (já aberta) com o Pipeline.
+    progresso(k, n, res, frame) é chamado a cada imagem; parar() -> True interrompe."""
     import cv2
-    from . import fontes, exportar, player, desenho
-
-    fonte = fontes.Fonte(fonte_path)
-    print(f"Fonte: {fonte.tipo} | {fonte.largura}x{fonte.altura} | "
-          f"{fonte.n} frames | {fonte.fps:.1f} fps")
-
-    pipe = Pipeline(cfg)
-    LIMIAR_RISCO = cfg.limiar_risco
-
+    from . import desenho
+    cfg = cfg or Config()
+    pipe = Pipeline(cfg, log=log)
     vw = None
     resultados, stats = [], []
     t0 = time.time()
+    n_total = min(fonte.n, max_frames) if max_frames and fonte.n else (max_frames or fonte.n)
     for idx, frame in fonte.iterar():
         res = pipe.processar(frame, idx / (fonte.fps or 15.0))
         resultados.append(res)
         stats.append(pipe.estatisticas(res, idx))
         if gravar_video:
-            anot = desenho.desenhar(frame, res, ttc_risco=LIMIAR_RISCO,
+            anot = desenho.desenhar(frame, res, ttc_risco=cfg.limiar_risco,
                                     estacionamento=estacionamento)
             if vw is None:
-                os.makedirs(os.path.dirname(fich_video), exist_ok=True)
+                os.makedirs(os.path.dirname(fich_video) or ".", exist_ok=True)
                 vw = cv2.VideoWriter(fich_video, cv2.VideoWriter_fourcc(*"mp4v"),
                                      fonte.fps or 15.0, (anot.shape[1], anot.shape[0]))
             vw.write(anot)
-        if (idx + 1) % 100 == 0:
-            print(f"... {idx + 1} frames", flush=True)
-        if max_frames and idx + 1 >= max_frames:
+        if progresso is not None:
+            progresso(idx, n_total, res, frame)
+        elif (idx + 1) % 100 == 0:
+            log(f"... {idx + 1} frames")
+        if (max_frames and idx + 1 >= max_frames) or (parar is not None and parar()):
             break
     if vw is not None:
         vw.release()
-        print(f"Vídeo anotado gravado em {fich_video}")
+        log(f"Vídeo anotado gravado em {fich_video}")
     dt = time.time() - t0
-    nfp = len(resultados)
-    print(f"\nProcessadas {nfp} frames em {dt:.1f}s ({nfp / max(dt, 1e-9):.1f} fps).")
+    log(f"Processadas {len(resultados)} frames em {dt:.1f}s ({len(resultados) / max(dt, 1e-9):.1f} fps).")
+    return resultados, stats
 
-    exportar.exportar_csv(resultados, "deteccoes.csv")
+
+def exportar(resultados, stats, cfg, pasta="."):
+    """Escreve os 3 CSV na pasta dada."""
+    from . import exportar as ex
+    os.makedirs(pasta, exist_ok=True)
+    ex.exportar_csv(resultados, os.path.join(pasta, "deteccoes.csv"))
     if cfg.linhas:
-        exportar.exportar_linhas_csv(stats, "linhas.csv")     # aula 5, ex. 4a
-    exportar.exportar_stats_csv(stats, "seguranca.csv")       # avisos/distâncias por frame
+        ex.exportar_linhas_csv(stats, os.path.join(pasta, "linhas.csv"))     # aula 5, ex. 4a
+    ex.exportar_stats_csv(stats, os.path.join(pasta, "seguranca.csv"))       # avisos por frame
+
+
+def executar(fonte_path, cfg=None, mostrar=True, graficos=True, gravar_video=False,
+             fich_video=None, max_frames=0, fich_gt="", estacionamento=False):
+    """Tudo o que esta análise produz (CSV, gráficos, vídeo) vai para
+    resultados/<gravação>_<data>/ — a pasta do projeto fica limpa."""
+    from . import fontes, player
+    cfg = cfg or Config()
+    fonte = fontes.Fonte(fonte_path)
+    print(f"Fonte: {fonte.tipo} | {fonte.largura}x{fonte.altura} | "
+          f"{fonte.n} frames | {fonte.fps:.1f} fps")
+    pasta = nova_pasta_resultados(fonte_path)
+    fich_video = fich_video or os.path.join(pasta, "video_anotado.mp4")
+    resultados, stats = processar(fonte, cfg, gravar_video=gravar_video, fich_video=fich_video,
+                                  max_frames=max_frames, estacionamento=estacionamento)
+    exportar(resultados, stats, cfg, pasta)
+    print(f"Resultados em {pasta}")
     _resumo(stats)
 
     if fich_gt and os.path.isfile(fich_gt):
@@ -71,9 +103,9 @@ def executar(fonte_path, cfg=None, mostrar=True, graficos=True, gravar_video=Fal
 
     # Player PRIMEIRO (o vídeo é o principal); os gráficos abrem só depois de o fechar.
     if mostrar:
-        player.reproduzir(fonte, resultados, stats, fps=fonte.fps, ttc_risco=LIMIAR_RISCO,
+        player.reproduzir(fonte, resultados, stats, fps=fonte.fps, ttc_risco=cfg.limiar_risco,
                           estacionamento=estacionamento)
-    _graficos(stats, graficos, LIMIAR_RISCO)
+    _graficos(stats, graficos, cfg.limiar_risco, pasta=pasta)
     fonte.fechar()
     return resultados, stats
 
@@ -119,14 +151,15 @@ def _resumo(stats):
               f"{riscos} ({100 * riscos / n:.0f}%)")
 
 
-def _graficos(stats, mostrar, LIMIAR_RISCO=4.0):
+def _graficos(stats, mostrar, LIMIAR_RISCO=4.0, pasta=PASTA_RESULTADOS, bloquear=True):
+    """Gráficos (PNG na pasta dada). bloquear=False: dentro de uma app Qt já a correr."""
     if not stats:
         return
     import matplotlib
     if not mostrar:
         matplotlib.use("Agg")         # sem janela (só grava PNG)
     import matplotlib.pyplot as plt
-    os.makedirs("dados", exist_ok=True)
+    os.makedirs(pasta, exist_ok=True)
     x = [s["frame"] for s in stats]
 
     f1 = plt.figure("Deteções por frame")
@@ -137,7 +170,7 @@ def _graficos(stats, mostrar, LIMIAR_RISCO=4.0):
     plt.plot(x, [s["nsinais"] for s in stats], label="Sinais")
     plt.xlabel("Frame"); plt.ylabel("Nº de deteções"); plt.grid(True); plt.legend()
     plt.title("Deteções por frame")
-    f1.savefig("dados/graf_deteccoes.png", dpi=120, bbox_inches="tight")
+    f1.savefig(os.path.join(pasta, "graf_deteccoes.png"), dpi=120, bbox_inches="tight")
 
     y = [s["ttc_min"] if s["ttc_min"] != float("inf") else float("nan") for s in stats]
     if any(v == v for v in y):        # existe algum não-NaN
@@ -146,7 +179,7 @@ def _graficos(stats, mostrar, LIMIAR_RISCO=4.0):
         plt.axhline(LIMIAR_RISCO, color="r", linestyle="--", label="limiar de risco")
         plt.xlabel("Frame"); plt.ylabel("TTC mínimo (s)"); plt.grid(True); plt.legend()
         plt.title("Tempo para colisão do veículo mais próximo por trás")
-        f2.savefig("dados/graf_ttc.png", dpi=120, bbox_inches="tight")
+        f2.savefig(os.path.join(pasta, "graf_ttc.png"), dpi=120, bbox_inches="tight")
 
     d = [s["dist_atras"] if s.get("dist_atras") is not None else float("nan") for s in stats]
     if any(v == v for v in d):
@@ -159,9 +192,9 @@ def _graficos(stats, mostrar, LIMIAR_RISCO=4.0):
             plt.scatter(xs, ys, s=8, c=c, label=k)
         plt.xlabel("Frame"); plt.ylabel("Distância (m)"); plt.grid(True); plt.legend()
         plt.title("Distância de segurança ao veículo que segue atrás (nossa faixa)")
-        f3.savefig("dados/graf_distancia.png", dpi=120, bbox_inches="tight")
+        f3.savefig(os.path.join(pasta, "graf_distancia.png"), dpi=120, bbox_inches="tight")
 
     if mostrar:
-        plt.show()
+        plt.show(block=bloquear)
     else:
         plt.close("all")
