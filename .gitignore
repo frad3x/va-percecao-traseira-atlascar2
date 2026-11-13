@@ -17,6 +17,7 @@ ros2_aquisicao/.env
 # Saídas geradas ao correr o main.py
 deteccoes.csv
 linhas.csv
+seguranca.csv
 dados/resultado_percecao.mp4
 dados/frames_bag.avi
 dados/graf_*.png

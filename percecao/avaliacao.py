@@ -8,7 +8,7 @@ gt: lista {1xN}; gt[k] = {'bb':[[x,y,w,h],...], 'classe':['veic'|'peoes'|'sinais
 """
 from .sinais import iou
 
-GRUPOS = ("veic", "peoes", "sinais")
+GRUPOS = ("veic", "duas_rodas", "peoes", "sinais")
 
 
 def _bb_grupo_pred(res, g):

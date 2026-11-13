@@ -8,25 +8,26 @@ não estiver disponível, recai para um player simples em OpenCV.
 
 Controlos (Qt e OpenCV):
   ESPAÇO play/pausa · A/D ou ←/→ recuar/avançar · +/- velocidade ·
-  HOME/END início/fim · Q/ESC sair.
+  HOME/END início/fim · G guias de estacionamento · V vista de cima · Q/ESC sair.
 
 Como as deteções já estão calculadas, recuar/saltar é instantâneo.
 """
 from . import desenho
 
 
-def reproduzir(fonte, resultados, stats=None, fps=15.0, ttc_risco=4.0):
+def reproduzir(fonte, resultados, stats=None, fps=15.0, ttc_risco=4.0, estacionamento=False):
     if not resultados:
         print("Sem frames para mostrar."); return
+    opc = {"ttc_risco": ttc_risco, "estacionamento": estacionamento, "vista_cima": True}
     try:
-        _reproduzir_qt(fonte, resultados, stats, fps, ttc_risco)
+        _reproduzir_qt(fonte, resultados, stats, fps, opc)
     except ImportError:
         print("(PySide6 indisponível — a usar o player simples em OpenCV)")
-        _reproduzir_cv2(fonte, resultados, stats, fps, ttc_risco)
+        _reproduzir_cv2(fonte, resultados, stats, fps, opc)
 
 
 # ============================ player Qt (principal) ============================
-def _reproduzir_qt(fonte, resultados, stats, fps, ttc_risco):
+def _reproduzir_qt(fonte, resultados, stats, fps, opc):
     import cv2
     import numpy as np
     from PySide6 import QtCore, QtGui, QtWidgets
@@ -78,6 +79,10 @@ def _reproduzir_qt(fonte, resultados, stats, fps, ttc_risco):
             self.lblPos = QtWidgets.QLabel("0 / 0")
             self.lblPos.setObjectName("pos")
 
+            # --- camadas (liga/desliga) ---
+            self.chkGuias = _check("Guias estacionamento (G)", opc["estacionamento"], self._camadas)
+            self.chkVista = _check("Vista de cima (V)", opc["vista_cima"], self._camadas)
+
             # --- layout ---
             barra = QtWidgets.QHBoxLayout()
             for b in (self.btIni, self.btRec, self.btPlay, self.btAva, self.btFim):
@@ -88,6 +93,9 @@ def _reproduzir_qt(fonte, resultados, stats, fps, ttc_risco):
             barra.addSpacing(12)
             barra.addWidget(self.slider, 1)
             barra.addWidget(self.lblPos)
+            barra.addSpacing(8)
+            barra.addWidget(self.chkGuias)
+            barra.addWidget(self.chkVista)
 
             estado = QtWidgets.QHBoxLayout()
             estado.addWidget(self.lblInfo)
@@ -108,12 +116,17 @@ def _reproduzir_qt(fonte, resultados, stats, fps, ttc_risco):
 
             self.render()
 
+        def _camadas(self, *_):
+            opc["estacionamento"] = self.chkGuias.isChecked()
+            opc["vista_cima"] = self.chkVista.isChecked()
+            self.render()
+
         # ---- render ----
         def render(self):
             self.k = max(0, min(self.k, n - 1))
             frame = fonte.ler(self.k)
             if frame is not None:
-                out = desenho.desenhar(frame, resultados[self.k], ttc_risco=ttc_risco)
+                out = desenho.desenhar(frame, resultados[self.k], **opc)
                 self._ultimo_rgb = cv2.cvtColor(out, cv2.COLOR_BGR2RGB)
             self._mostrar()
             self._sync = True
@@ -133,31 +146,39 @@ def _reproduzir_qt(fonte, resultados, stats, fps, ttc_risco):
 
         def _atualizar_info(self):
             r = resultados[self.k]
-            nv = len(r.get("veic", {}).get("bb", []))
-            npe = len(r.get("peoes", {}).get("bb", []))
-            ns = len(r.get("sinais", {}).get("bb", []))
+            cont = {g: len((r.get(g) or {}).get("bb", []))
+                    for g in ("veic", "duas_rodas", "peoes", "sinais")}
             lin = r.get("linhas") or {}
             nl = lin.get("n", 0)
             tps = [f"{s}: {(lin.get(k) or {}).get('tipo')}" for k, s in (("esq", "esq"), ("dir", "dir"))
                    if lin.get(k)]
             nl = f"{nl} ({', '.join(tps)})" if tps else nl
-            t = ""
+            marcs = [m["tipo"].replace("_", " ") for m in lin.get("marcacoes", [])]
+            extra = f"&nbsp;&nbsp; <b>Pavimento</b> {', '.join(marcs)}" if marcs else ""
+            self.lblInfo.setText(
+                f"<b>Linhas</b> {nl}{extra}&nbsp;&nbsp; "
+                f"<span style='color:#1ea0ff'>■</span> <b>Veículos</b> {cont['veic']}&nbsp;&nbsp; "
+                f"<span style='color:#ff8000'>■</span> <b>2 rodas</b> {cont['duas_rodas']}&nbsp;&nbsp; "
+                f"<span style='color:#ffe600'>■</span> <b>Peões</b> {cont['peoes']}&nbsp;&nbsp; "
+                f"<span style='color:#dc3cdc'>■</span> <b>Sinais</b> {cont['sinais']}")
+            seg = r.get("seg") or {}
+            alertas = seg.get("alertas", [])
+            t = None
             if stats is not None and self.k < len(stats):
                 tt = stats[self.k].get("ttc_min", float("inf"))
                 if tt != float("inf"):
                     t = tt
-            self.lblInfo.setText(
-                f"<b>Linhas</b> {nl}&nbsp;&nbsp; <b>Veículos</b> {nv}&nbsp;&nbsp; "
-                f"<b>Peões</b> {npe}&nbsp;&nbsp; <b>Sinais</b> {ns}")
-            if t == "":
-                self.lblTTC.setText("")
-                self.lblTTC.setStyleSheet("")
-            else:
-                risco = t < ttc_risco
-                cor = "#ff4d4d" if risco else "#36d399"
-                aviso = "  ⚠ RISCO" if risco else ""
-                self.lblTTC.setText(f"TTC {t:.1f}s{aviso}")
+            if alertas:
+                nivel, txt = alertas[0]
+                cor = "#ff4d4d" if nivel == "perigo" else "#ffaa00"
+                self.lblTTC.setText(f"⚠ {txt.capitalize()}")
                 self.lblTTC.setStyleSheet(f"color:{cor}; font-weight:700;")
+            elif t is not None:
+                self.lblTTC.setText(f"TTC {t:.1f}s")
+                self.lblTTC.setStyleSheet("color:#36d399; font-weight:700;")
+            else:
+                self.lblTTC.setText("Sem riscos")
+                self.lblTTC.setStyleSheet("color:#7d8696;")
             self.lblPos.setText(f"{self.k + 1} / {n}")
 
         # ---- controlo ----
@@ -233,6 +254,10 @@ def _reproduzir_qt(fonte, resultados, stats, fps, ttc_risco):
                 self.ir_inicio()
             elif e.key() == K.Key_End:
                 self.ir_fim()
+            elif e.key() == K.Key_G:
+                self.chkGuias.toggle()
+            elif e.key() == K.Key_V:
+                self.chkVista.toggle()
             elif e.key() in (K.Key_Q, K.Key_Escape):
                 self.close()
             else:
@@ -258,6 +283,15 @@ def _botao(txt, dica, slot, largo=False):
     return b
 
 
+def _check(txt, valor, slot):
+    from PySide6 import QtCore, QtWidgets
+    c = QtWidgets.QCheckBox(txt)
+    c.setChecked(bool(valor))
+    c.setFocusPolicy(QtCore.Qt.NoFocus)
+    c.toggled.connect(slot)
+    return c
+
+
 _QSS = """
 QWidget { background:#15171c; color:#e6e8ee; font-family:'Segoe UI',sans-serif; font-size:13px; }
 QLabel#video { background:#0b0c10; border:1px solid #2a2e37; border-radius:8px; }
@@ -272,11 +306,14 @@ QSlider::groove:horizontal { height:6px; background:#2a2e37; border-radius:3px; 
 QSlider::sub-page:horizontal { background:#4c8bf5; border-radius:3px; }
 QSlider::handle:horizontal { background:#eaecf2; width:14px; margin:-5px 0; border-radius:7px; }
 QSlider::handle:horizontal:hover { background:#ffffff; }
+QCheckBox { color:#c9ceda; spacing:6px; }
+QCheckBox::indicator { width:16px; height:16px; border-radius:4px; border:1px solid #444b5c; background:#232732; }
+QCheckBox::indicator:checked { background:#4c8bf5; border-color:#4c8bf5; }
 """
 
 
 # ======================== player OpenCV (fallback) ========================
-def _reproduzir_cv2(fonte, resultados, stats, fps, ttc_risco):
+def _reproduzir_cv2(fonte, resultados, stats, fps, opc):
     import cv2
     n = len(resultados)
     if not fps or fps <= 0:
@@ -294,7 +331,7 @@ def _reproduzir_cv2(fonte, resultados, stats, fps, ttc_risco):
         k = est["k"]
         frame = fonte.ler(k)
         if frame is not None:
-            out = desenho.desenhar(frame, resultados[k], ttc_risco)
+            out = desenho.desenhar(frame, resultados[k], **opc)
             cv2.imshow(win, out)
         if cv2.getTrackbarPos("frame", win) != k:
             cv2.setTrackbarPos("frame", win, k)
@@ -312,6 +349,10 @@ def _reproduzir_cv2(fonte, resultados, stats, fps, ttc_risco):
             est["vel"] = min(est["vel"] * 2, 8.0)
         elif tecla == ord("-"):
             est["vel"] = max(est["vel"] / 2, 0.25)
+        elif tecla == ord("g"):
+            opc["estacionamento"] = not opc["estacionamento"]
+        elif tecla == ord("v"):
+            opc["vista_cima"] = not opc["vista_cima"]
         elif est["play"]:
             est["k"] = k + 1
         if est["k"] >= n:

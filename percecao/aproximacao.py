@@ -19,13 +19,16 @@ class Aproximacao:
         self.limiar_risco = limiar_risco
         self._hist = {}   # id -> (lista_t, lista_s)
 
-    def atualizar(self, veic, t):
+    def atualizar(self, veic, t, grupo="veic"):
         """veic: dict com 'bb' e 'id'. Devolve lista de TTC (s) alinhada às caixas."""
         bbs = veic.get("bb", [])
         ids = veic.get("id", [])
         ttc = [float("inf")] * len(bbs)
         for k, bb in enumerate(bbs):
             oid = ids[k] if k < len(ids) else -1
+            if oid < 0:                    # sem rastreio não há histórico fiável
+                continue
+            oid = (grupo, oid)
             s = bb[3]                      # altura da caixa (px) = tamanho aparente
             ts, ss = self._hist.get(oid, ([], []))
             ts.append(t); ss.append(s)
@@ -39,6 +42,10 @@ class Aproximacao:
                     dsdt, s_now = p[0], np.polyval(p, tt[-1])
                     if dsdt > self.cres_min and s_now > 0:
                         ttc[k] = float(s_now / dsdt)
+        # esquece objetos que já não se veem há muito (memória não cresce sem fim)
+        velhos = [o for o, (ts, _) in self._hist.items() if t - ts[-1] > 5.0]
+        for o in velhos:
+            del self._hist[o]
         return ttc
 
     def ttc_minimo(self, ttc):
