@@ -42,8 +42,10 @@ def main():
     ap.add_argument("--rapido", action="store_true", help="teste rápido (não substitui modelos)")
     a = ap.parse_args()
 
-    raiz = Path(__file__).resolve().parent
+    raiz = Path(__file__).resolve().parents[1]      # pasta do projeto
     os.chdir(raiz)
+    import sys
+    sys.path.insert(0, str(raiz))
     from treino import dados_sinais as ds
 
     # --- 1) dados ---

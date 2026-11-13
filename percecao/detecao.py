@@ -42,7 +42,7 @@ def _sobreposicao(a, b):
 
 
 class Detetor:
-    def __init__(self, modelo="yolo11n.pt", conf=0.25, imgsz=640,
+    def __init__(self, modelo="modelos/yolo11n.pt", conf=0.25, imgsz=640,
                  usar_track=True, tracker="bytetrack.yaml", dispositivo=None):
         self.model = YOLO(modelo)
         self.extra = {} if dispositivo in (None, "") else {"device": dispositivo}

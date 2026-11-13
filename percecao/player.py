@@ -15,19 +15,21 @@ Como as deteções já estão calculadas, recuar/saltar é instantâneo.
 from . import desenho
 
 
-def reproduzir(fonte, resultados, stats=None, fps=15.0, ttc_risco=4.0, estacionamento=False):
+def reproduzir(fonte, resultados, stats=None, fps=15.0, ttc_risco=4.0, estacionamento=False,
+               bloquear=True):
+    """bloquear=False: dentro de uma app Qt já a correr — devolve a janela (guarda-a!)."""
     if not resultados:
-        print("Sem frames para mostrar."); return
+        print("Sem frames para mostrar."); return None
     opc = {"ttc_risco": ttc_risco, "estacionamento": estacionamento, "vista_cima": True}
     try:
-        _reproduzir_qt(fonte, resultados, stats, fps, opc)
+        return _reproduzir_qt(fonte, resultados, stats, fps, opc, bloquear)
     except ImportError:
         print("(PySide6 indisponível — a usar o player simples em OpenCV)")
         _reproduzir_cv2(fonte, resultados, stats, fps, opc)
 
 
 # ============================ player Qt (principal) ============================
-def _reproduzir_qt(fonte, resultados, stats, fps, opc):
+def _reproduzir_qt(fonte, resultados, stats, fps, opc, bloquear=True):
     import cv2
     import numpy as np
     from PySide6 import QtCore, QtGui, QtWidgets
@@ -269,7 +271,10 @@ def _reproduzir_qt(fonte, resultados, stats, fps, opc):
 
     w = Player()
     w.show()
+    if not bloquear:
+        return w
     app.exec()
+    return None
 
 
 def _botao(txt, dica, slot, largo=False):
@@ -293,22 +298,22 @@ def _check(txt, valor, slot):
 
 
 _QSS = """
-QWidget { background:#15171c; color:#e6e8ee; font-family:'Segoe UI',sans-serif; font-size:13px; }
-QLabel#video { background:#0b0c10; border:1px solid #2a2e37; border-radius:8px; }
+QWidget { background:#0f0f0f; color:#e6e8ee; font-family:'Segoe UI',sans-serif; font-size:13px; }
+QLabel#video { background:#000000; border:1px solid #2a2a2a; border-radius:8px; }
 QLabel#info { font-size:14px; }
 QLabel#pos  { color:#9aa3b2; min-width:72px; }
-QPushButton { background:#232732; border:1px solid #333948; border-radius:8px; font-size:16px; }
-QPushButton:hover { background:#2d3340; }
-QPushButton:pressed { background:#3a4252; }
-QComboBox { background:#232732; border:1px solid #333948; border-radius:6px; padding:3px 8px; }
-QComboBox QAbstractItemView { background:#232732; selection-background-color:#3a4252; }
-QSlider::groove:horizontal { height:6px; background:#2a2e37; border-radius:3px; }
-QSlider::sub-page:horizontal { background:#4c8bf5; border-radius:3px; }
+QPushButton { background:#262626; border:1px solid #383838; border-radius:8px; font-size:16px; }
+QPushButton:hover { background:#303030; }
+QPushButton:pressed { background:#3a3a3a; }
+QComboBox { background:#262626; border:1px solid #383838; border-radius:6px; padding:3px 8px; }
+QComboBox QAbstractItemView { background:#262626; selection-background-color:#3a3a3a; }
+QSlider::groove:horizontal { height:6px; background:#2a2a2a; border-radius:3px; }
+QSlider::sub-page:horizontal { background:#92D400; border-radius:3px; }
 QSlider::handle:horizontal { background:#eaecf2; width:14px; margin:-5px 0; border-radius:7px; }
 QSlider::handle:horizontal:hover { background:#ffffff; }
 QCheckBox { color:#c9ceda; spacing:6px; }
-QCheckBox::indicator { width:16px; height:16px; border-radius:4px; border:1px solid #444b5c; background:#232732; }
-QCheckBox::indicator:checked { background:#4c8bf5; border-color:#4c8bf5; }
+QCheckBox::indicator { width:16px; height:16px; border-radius:4px; border:1px solid #444b5c; background:#262626; }
+QCheckBox::indicator:checked { background:#92D400; border-color:#92D400; }
 """
 
 

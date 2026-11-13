@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Config:
-    modelo: str = "yolo11m.pt"       # YOLO (veículos/duas rodas/peões)
+    modelo: str = "modelos/yolo11m.pt"       # YOLO (veículos/duas rodas/peões)
     imgsz: int = 1280
     conf: float = 0.25
     usar_track: bool = True          # ByteTrack (IDs estáveis) — preciso para o TTC

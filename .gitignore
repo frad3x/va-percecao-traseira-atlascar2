@@ -3,31 +3,31 @@ python/.venv/
 .venv/
 __pycache__/
 *.pyc
+*.egg-info/
 
 # Definições locais (caminhos pessoais)
 .vscode/
 ros2_aquisicao/.env
 
-# Pesos base do YOLO: descarregam-se sozinhos na 1.ª execução
-/yolo*.pt
+# Pesos base do YOLO: descarregam-se sozinhos para modelos/ na 1.ª execução
+modelos/yolo11*.pt
+yolo*.pt
 
 # Caches que o Ultralytics recria
 *.cache
 
-# Saídas geradas ao correr o main.py
-deteccoes.csv
-linhas.csv
-seguranca.csv
-dados/resultado_percecao.mp4
+# Resultados das análises (app, main.py e linha de comandos): uma pasta por análise
+resultados/
+
+# Caches gerados a partir das gravações
 dados/frames_bag.avi
-dados/graf_*.png
 dados/nuvens/
 
 # Pesos YOLO descarregados pelo contentor da perceção
 ros2_aquisicao/pesos/*
 !ros2_aquisicao/pesos/.gitkeep
+
 # Build do ROS 2 (se compilares fora do Docker)
 ros2_aquisicao/build/
 ros2_aquisicao/install/
 ros2_aquisicao/log/
-*.egg-info/

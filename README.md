@@ -14,6 +14,16 @@ Deteta, numa só aplicação, com rastreio e estatísticas:
 - **Tempo-para-colisão (TTC)** dos veículos que se aproximam por trás — o distintivo.
 - **Apoio ao estacionamento (3D/RGB-D)** — chão por RANSAC + obstáculos + lugar livre.
 
+## Aplicação de janela (o mais simples)
+
+Duplo clique no atalho **"Perceção Traseira"** do ambiente de trabalho. Arrastas a gravação
+(vídeo, rosbag `.mcap` ou pasta) para a janela, escolhes as opções e carregas em
+**Analisar**. Vês a análise ao vivo e, no fim, um resumo com o player, os gráficos, os CSV
+e o vídeo anotado. Cada análise fica numa pasta própria em `resultados/`.
+
+- Abrir sem o atalho: `python -m percecao.gui` (na pasta do projeto, com o ambiente `python/.venv`).
+- Criar o atalho (uma vez, noutro PC): `python\.venv\Scripts\python.exe ferramentas\criar_atalho.py`.
+
 ## Como correr
 
 ```bash
@@ -31,13 +41,14 @@ No fim abre o **player interativo**:
 - **ESPAÇO** play/pausa · **a/d** (ou ←/→) recuar/avançar · **+/−** velocidade ·
   **barra** saltar para qualquer frame · **q** sair.
 
-Saídas: `deteccoes.csv` (todas as caixas), `linhas.csv` (linhas e tipo por frame),
-`seguranca.csv` (distâncias e avisos por frame) e gráficos (deteções/frame, TTC, distância).
+Saídas — cada análise numa pasta própria, `resultados/<gravação>_<data>/`: `deteccoes.csv`
+(todas as caixas), `linhas.csv` (linhas e tipo por frame), `seguranca.csv` (distâncias e
+avisos por frame), gráficos (deteções/frame, TTC, distância) e, se pedido, o vídeo anotado.
 
 **Linha de comandos** (a mesma aplicação, sem editar o código):
 ```bash
 python -m percecao dados/bags/g02_camtras_20261104_160818_percurso1
-python -m percecao video.mp4 --modelo yolo11n.pt --imgsz 640 --vel-kmh 50 --sem-graficos
+python -m percecao video.mp4 --modelo modelos/yolo11n.pt --imgsz 640 --vel-kmh 50 --sem-graficos
 python -m percecao --help
 ```
 Instalada como pacote (`pip install ".[app]"`) fica também o comando `va-percecao`.
@@ -57,13 +68,20 @@ Instalada como pacote (`pip install ".[app]"`) fica também o comando `va-percec
 | `ferramentas/descarregar_argoverse.py` | Imagens de câmaras traseiras (Argoverse 2) para testar |
 | `percecao/sinais.py` | Sinais PT clássicos (cor HSV + forma) |
 | `percecao/sinais_treinados.py` | Sinais com modelos treinados (deteção + 43 tipos) |
-| `treinar_sinais.py`, `treino/` | Descarregar datasets + treinar os modelos de sinais |
+| `treino/treinar_sinais.py`, `treino/` | Descarregar datasets + treinar os modelos de sinais |
 | `percecao/aproximacao.py` | TTC dos veículos que seguem atrás |
 | `percecao/desenho.py` | Overlay das deteções |
 | `percecao/player.py` | Player interativo (OpenCV) |
 | `percecao/exportar.py` / `avaliacao.py` | CSV / métricas vs ground truth |
 | `percecao/percecao3d.py` | Perceção 3D (Open3D): chão + obstáculos + estacionamento |
 | `percecao/profundidade.py` | Profundidade do bag → nuvem de pontos |
+| `percecao/gui.py` | A aplicação de janela |
+| `ferramentas/abrir_app.pyw`, `ferramentas/criar_atalho.py` | Abrir a app sem consola / criar o atalho |
+| `modelos/` | Pesos: sinais treinados + YOLO base (`yolo11n/m.pt`, descarregam-se sozinhos) |
+| `dados/bags/` | Gravações (rosbags e vídeos de teste) |
+| `resultados/` | Uma pasta por análise (CSV, gráficos, vídeo anotado) |
+| `assets/` | Ícone da aplicação |
+| `python/.venv/` | Ambiente Python do projeto |
 
 ## Linhas da faixa (`percecao/linhas.py`) — método da aula 5
 Segue o exemplo MATLAB *Visual Perception Using Monocular Camera* da aula 5, passo a
@@ -122,16 +140,16 @@ Parâmetros em `PARAMS` (topo de `linhas.py`); `horizonte` pode ser fixado se qu
 - **A2D2 / Audi** (CC BY-ND 4.0, AWS sem conta): câmara **`rearcenter`**; ficheiros grandes.
 
 ## Modelo YOLO e sinais pequenos
-Por omissão `MODELO="yolo11m.pt"` com `IMGSZ=1280` (~28 fps com GPU). Testado no vídeo
+Por omissão `MODELO="modelos/yolo11m.pt"` com `IMGSZ=1280` (~28 fps com GPU). Testado no vídeo
 de teste: deteta **16×** mais STOP que o `yolo11n` a 640 e dá mais confiança aos
-veículos. **Sem GPU**: usa `yolo11n.pt` com `IMGSZ=640`.
+veículos. **Sem GPU**: usa `modelos/yolo11n.pt` com `IMGSZ=640`.
 Limite físico: sinais com ~10 px num vídeo 640×360 comprimido **não são detetáveis**
 (nem ampliando — testado). Na câmara do ATLASCAR (1280×720) os sinais são maiores.
-Para reconhecer **todos** os tipos de sinal (cedência, limites de velocidade…), o
-caminho é treinar o YOLO num dataset de sinais com `python/treina_yolo.py`.
+Para reconhecer **todos** os tipos de sinal (cedência, limites de velocidade…) usam-se os
+modelos treinados pelo grupo (ver a secção seguinte).
 
-## Treinar o reconhecimento de sinais (43 tipos) — `treinar_sinais.py`
-Basta dar Run (ou `python treinar_sinais.py`). Em duas fases, como nos sistemas reais:
+## Treinar o reconhecimento de sinais (43 tipos) — `treino/treinar_sinais.py`
+Basta dar Run no `treino/treinar_sinais.py` (ou `python treino/treinar_sinais.py`). Em duas fases, como nos sistemas reais:
 1. **Detetor** — YOLO treinado no **GTSDB** (900 imagens com caixas): encontra os
    sinais e diz a categoria (proibição / perigo / obrigação / outros).
 2. **Classificador** — YOLO-cls treinado no **GTSRB** (~39 mil recortes, 43 tipos):
@@ -154,8 +172,8 @@ A partir daí o `main.py` usa-os **automaticamente**; sem eles usa o detetor cl�
   têm (o losango amarelo dos EUA é lido como "estrada com prioridade", que é o seu
   significado na Europa). Para Portugal (convenção de Viena) é o domínio certo.
 
-- `python treinar_sinais.py --so-preparar` → só descarrega/converte os dados.
-- `python treinar_sinais.py --rapido` → teste de 1 época (não substitui os modelos).
+- `python treino/treinar_sinais.py --so-preparar` → só descarrega/converte os dados.
+- `python treino/treinar_sinais.py --rapido` → teste de 1 época (não substitui os modelos).
 - O GTSRB é dividido por **faixa** (cada sinal real tem ~30 frames quase iguais) para
   a validação não "ver" cópias do treino; o classificador **nunca** espelha imagens
   (senão "virar à esquerda" passava a "virar à direita").
@@ -167,7 +185,7 @@ PT. Os limiares estão em `PARAMS` no topo de `percecao/sinais.py` — afinados 
 `sat_min`/`val_min` e sobe `area_rel_max`.
 
 ## Avaliação (métricas)
-`main.py` exporta sempre `deteccoes.csv`. Para medir desempenho:
+Cada análise exporta sempre o `deteccoes.csv` (em `resultados/…`). Para medir desempenho:
 1. Anota algumas frames (ex. **CVAT**, **Roboflow** ou **labelImg**) sobre o vídeo.
 2. Gera um `ground_truth.json`: lista `[ {"bb": [[x,y,w,h],...], "classe": ["veic","peoes","sinais",...]}, ... ]` (um por frame).
 3. Põe o caminho em `FICH_GT` no `main.py` → imprime **TP/FP/FN, precisão, recall, F1, MAE** por grupo.

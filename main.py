@@ -27,8 +27,8 @@ FONTE = r"C:\Users\tomas\OneDrive\Documentos\Universidade\5º ano\VA\Projeto\dad
 #     FONTE = r"C:\Users\tomas\Desktop\o_meu_video.mp4"
 #     FONTE = r"dados\bags\g02_camtras_20261104_160818_percurso1"   # pasta do bag
 FONTE = os.environ.get("VA_FONTE", FONTE)   # (permite também definir por variável de ambiente)
-MODELO = "yolo11m.pt"      # modelo YOLO (descarregado na 1.ª vez). 'm' = bom equilíbrio
-                           #   precisão/velocidade com GPU. Sem GPU: "yolo11n.pt" + IMGSZ=640.
+MODELO = "modelos/yolo11m.pt"  # modelo YOLO (descarregado na 1.ª vez). 'm' = bom equilíbrio
+                           #   precisão/velocidade com GPU. Sem GPU: "modelos/yolo11n.pt" + IMGSZ=640.
 IMGSZ = 1280               # resolução de inferência: 1280 apanha objetos PEQUENOS
                            #   (sinais ao longe) muito melhor que 640 — testado: 16x mais STOP
 CONF = 0.25                # confiança mínima do YOLO
@@ -39,7 +39,7 @@ LINHAS = True              # deteção das linhas da faixa (método da aula 5, s
 #   {"horizonte": 0.50}  -> fixar o horizonte em vez de o estimar
 LINHAS_PARAMS = {}
 SINAIS_CLASSICO = True     # YOLO (stop) + detetor clássico (restantes sinais PT)
-# Sinais TREINADOS (gerados por treinar_sinais.py). Se existirem, substituem o
+# Sinais TREINADOS (gerados por treino/treinar_sinais.py). Se existirem, substituem o
 # detetor clássico e reconhecem 43 tipos (limite 50, cedência, rotunda, obras...).
 SINAIS_DET = "modelos/sinais_det.pt"
 SINAIS_CLS = "modelos/sinais_cls.pt"
@@ -54,7 +54,7 @@ ESTACIONAMENTO = False     # guias de distância no chão (também: tecla G no p
 MOSTRAR = os.environ.get("VA_MOSTRAR", "1") != "0"     # abrir o player no fim
 GRAFICOS = os.environ.get("VA_GRAFICOS", "1") != "0"   # mostrar gráficos
 GRAVAR_VIDEO = os.environ.get("VA_GRAVAR_VIDEO", "0") != "0"  # gravar vídeo anotado (mp4)
-FICH_VIDEO = "dados/resultado_percecao.mp4"
+FICH_VIDEO = None           # None = resultados/<gravação>_<data>/video_anotado.mp4
 MAX_FRAMES = int(os.environ.get("VA_MAX_FRAMES", "0")) # 0 = todas (ex. 50 p/ testar)
 FICH_GT = ""               # ground truth .json (opcional) -> avaliação de métricas
 # ==========================================================================

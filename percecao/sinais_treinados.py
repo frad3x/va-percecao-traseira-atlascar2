@@ -7,7 +7,7 @@ sinais_treinados.py — reconhecimento de sinais com modelos TREINADOS (2 fases)
      encontrado, diz QUAL é (limite 50, cedência, STOP, rotunda, obras...).
 
 Os dois datasets seguem a convenção europeia de Viena (a mesma dos sinais
-portugueses). Os modelos geram-se com ../treinar_sinais.py.
+portugueses). Os modelos geram-se com treino/treinar_sinais.py.
 
 ReconhecedorSinais(det_pt, cls_pt).detetar(frame) -> {'bb':[...], 'sc':[...], 'tipo':[...]}
 (mesmo formato do detetor clássico, para o resto do pipeline não mudar).
