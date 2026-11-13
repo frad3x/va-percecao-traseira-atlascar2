@@ -78,6 +78,8 @@ PARAMS = dict(
     confirmar_n=6,        # um lado só aparece se foi visto em >= k das
     confirmar_k=3,        #   últimas n frames (corta "piscares")
     salto_max=0.12,       # salto maior que isto (fração) reinicia a suavização
+    # --- outras marcações no pavimento ---
+    marcacoes=True,       # passadeiras e linhas de paragem (na vista de cima)
 )
 
 _RNG = np.random.default_rng(0)
@@ -128,6 +130,32 @@ def veic_para_img(x, y, g):
     return g["cx"] - g["f"] * y / zc, g["cy"] + g["f"] * (g["h"] * g["c"] - x * g["s"]) / zc
 
 
+def img_para_chao(u, v, g):
+    """Inverso de veic_para_img: píxel (u, v) -> ponto no chão (x à frente, y à esq.).
+    Só faz sentido abaixo do horizonte (v > y_h). Devolve (x, y) em metros."""
+    t = (v - g["cy"]) / g["f"]
+    den = t * g["c"] + g["s"]
+    if den <= 1e-6:
+        return float("inf"), 0.0
+    x = g["h"] * (g["c"] - t * g["s"]) / den
+    zc = x * g["c"] + g["h"] * g["s"]
+    return float(x), float(-(u - g["cx"]) * zc / g["f"])
+
+
+def lateral_da_linha(seg, x, g):
+    """Posição lateral (m, + = esquerda da imagem) de uma linha detetada, à distância x."""
+    rn = (g["x_far"] - x) / max(g["x_far"] - g["x_near"], 1e-6)
+    rn = min(max(rn, 0.0), 1.0)                 # fora da vista de cima: prolonga a direito
+    return g["lado"] - float(np.polyval(seg["coef"], rn)) / g["ppm"]
+
+
+def bev_para_img(r, c, g):
+    """Píxel (linha r, coluna c) da vista de cima -> píxel (u, v) da imagem."""
+    x = g["x_far"] - (r / (g["bh"] - 1.0)) * (g["x_far"] - g["x_near"])
+    y = g["lado"] - c / g["ppm"]
+    return veic_para_img(x, y, g)
+
+
 def curva_para_img(coef, rn_top, g, n=40):
     """Parábola da vista de cima (col = a·rn² + b·rn + c) -> pontos na imagem."""
     rn = np.linspace(max(rn_top, 0.0), 1.0, n)
@@ -155,6 +183,7 @@ class DetetorLinhas:
         self._tipo = {"esq": deque(maxlen=9), "dir": deque(maxlen=9)}
         self._clahe = cv2.createCLAHE(clipLimit=self.p["clahe"], tileGridSize=(4, 4))
         self._marcas = None
+        self._hist_marc = {}
         self.debug = {}
 
     # ------------------------------------------------------------------
@@ -184,10 +213,10 @@ class DetetorLinhas:
         #    reflexo do sol no asfalto é quente (pouco azul) -> desaparece;
         #  - AMARELAS em (R+G)/2 - B ("amarelidão").
         B, G, R = (bev[:, :, i].astype(np.int16) for i in range(3))
-        branco = np.minimum(np.minimum(R, G), B).astype(np.uint8)
+        branco = self._clahe.apply(np.minimum(np.minimum(R, G), B).astype(np.uint8))
         amarelo = np.clip((R + G) // 2 - B, 0, 255).astype(np.uint8)
         tau = max(2, int(round(p["marca"] * bw)))
-        r = np.maximum(_ridge(self._clahe.apply(branco).astype(np.float32), tau),
+        r = np.maximum(_ridge(branco.astype(np.float32), tau),
                        _ridge(self._clahe.apply(amarelo).astype(np.float32), tau))
         dentro = cv2.erode(val.astype(np.uint8), np.ones((3, 2 * tau + 1), np.uint8)) > 0
         marcas = (r >= p["ridge_min"]) & dentro
@@ -212,7 +241,85 @@ class DetetorLinhas:
         outras = [c for c in fortes if c is not ego.get("esq") and c is not ego.get("dir")]
         self.debug = dict(n_marcas=int(marcas.sum()), n_cand=len(cand),
                           n_fortes=len(fortes), horizonte=y_h)
-        return self._saida(chave, g, ego, outras, y_h)
+        out = self._saida(chave, g, ego, outras, y_h)
+        # --- 8) outras marcações no pavimento: passadeiras e linhas de paragem ---
+        if p["marcacoes"]:
+            out["marcacoes"] = self._marcacoes(branco, val, g)
+        return out
+
+    def _marcacoes(self, branco, val, g):
+        """Passadeira (zebra) e linha de paragem, na vista de cima.
+        Na vista de cima as escalas são métricas (aprox.), por isso as regras são em m:
+          - passadeira: numa mesma linha, >= 3 barras claras de 0.3-0.9 m de largura,
+            espaçadas com regularidade, ao longo de >= 1.2 m de profundidade;
+          - linha de paragem: barra clara TRANSVERSAL >= 1.6 m de comprimento e
+            0.15-0.7 m de espessura.
+        Confirmação temporal (2 das últimas 4 frames) para não piscar."""
+        bh, bw = branco.shape
+        ppm = g["ppm"]                                             # px/m (lateral)
+        ppm_r = (bh - 1.0) / max(g["x_far"] - g["x_near"], 1e-6)   # px/m (profundidade)
+        dentro = cv2.erode(val.astype(np.uint8), np.ones((3, 5), np.uint8)) > 0
+        vals = branco[dentro]
+        achados = []
+        if vals.size > 500:
+            thr = max(150.0, float(np.percentile(vals, 85)), float(vals.mean() + 1.5 * vals.std()))
+            claro = (branco >= thr) & dentro
+            claro = cv2.morphologyEx(claro.astype(np.uint8), cv2.MORPH_OPEN,
+                                     np.ones((3, 3), np.uint8)) > 0
+            # ---- passadeira: barras longitudinais repetidas ----
+            lmin, lmax = 0.3 * ppm, 0.9 * ppm
+            linha_zebra = np.zeros(bh, bool)
+            extremos = {}
+            # troços claros de todas as linhas de uma vez (inícios e fins vêm pela mesma ordem)
+            d = np.diff(np.pad(claro.astype(np.int8), ((0, 0), (1, 1))), axis=1)
+            ri, ci = np.nonzero(d == 1)
+            _, cf = np.nonzero(d == -1)
+            ok = ((cf - ci) >= lmin) & ((cf - ci) <= lmax)
+            ri, ci, cf = ri[ok], ci[ok], cf[ok]
+            for r in np.flatnonzero(np.bincount(ri, minlength=bh) >= 3):
+                sel = ri == r
+                cen = (ci[sel] + cf[sel]) / 2.0
+                gaps = np.diff(cen)
+                if gaps.min() > 0.6 * ppm and gaps.std() < 0.35 * gaps.mean():
+                    linha_zebra[r] = True
+                    extremos[r] = (int(ci[sel].min()), int(cf[sel].max()))
+            for r0, r1 in _corridas(linha_zebra, int(0.25 * ppm_r)):
+                if r1 - r0 >= 1.2 * ppm_r:
+                    cs = [extremos[r] for r in range(r0, r1) if r in extremos]
+                    c0 = int(np.median([c[0] for c in cs]))
+                    c1 = int(np.median([c[1] for c in cs]))
+                    achados.append(("passadeira", r0, r1, c0, c1))
+            # ---- linha de paragem: barra transversal ----
+            comp = cv2.morphologyEx(claro.astype(np.uint8), cv2.MORPH_OPEN,
+                                    np.ones((1, max(3, int(1.6 * ppm))), np.uint8)) > 0
+            linhas_t = comp.sum(1) >= 1.6 * ppm
+            for r0, r1 in _corridas(linhas_t, 1):
+                esp = (r1 - r0) / ppm_r
+                perto_zebra = any(a[0] == "passadeira" and a[1] - 5 <= r0 <= a[2] + 5
+                                  for a in achados)
+                if 0.15 <= esp <= 0.7 and not perto_zebra:
+                    cols = np.flatnonzero(comp[r0:r1].any(0))
+                    achados.append(("linha_paragem", r0, r1, int(cols.min()), int(cols.max())))
+        # várias barras transversais seguidas = passadeira vista de lado (as barras de
+        # uma zebra também são transversais quando a câmara olha na diagonal)
+        barras = sorted([a for a in achados if a[0] == "linha_paragem"], key=lambda a: a[1])
+        if len(barras) >= 2 and (barras[-1][1] - barras[0][2]) <= 4.0 * ppm_r:
+            achados = [a for a in achados if a[0] != "linha_paragem"]
+            achados.append(("passadeira", barras[0][1], barras[-1][2],
+                            min(a[3] for a in barras), max(a[4] for a in barras)))
+        saida = []
+        for tipo in ("passadeira", "linha_paragem"):
+            h = self._hist_marc.setdefault(tipo, deque(maxlen=4))
+            atual = [a for a in achados if a[0] == tipo]
+            h.append(bool(atual))
+            if atual and sum(h) >= 2:
+                for _, r0, r1, c0, c1 in atual:
+                    cant = [(r0, c0), (r0, c1), (r1, c1), (r1, c0)]
+                    pts = [[float(v) for v in bev_para_img(r, c, g)] for r, c in cant]
+                    dist = g["x_far"] - (r1 / (bh - 1.0)) * (g["x_far"] - g["x_near"])
+                    saida.append(dict(tipo=tipo, pts=pts, dist=float(dist),
+                                      bev=(int(r0), int(r1), int(c0), int(c1))))
+        return saida
 
     # ------------------------------------------------------------------
     def _horizonte(self, frame, excluir, H):
@@ -324,6 +431,21 @@ class DetetorLinhas:
 
 
 # ============================ funções auxiliares ============================
+def _corridas(mask, tol):
+    """Troços contíguos de True num vetor (tolera falhas até tol) -> [(ini, fim)]."""
+    idx = np.flatnonzero(mask)
+    if idx.size == 0:
+        return []
+    out, ini, ant = [], idx[0], idx[0]
+    for i in idx[1:]:
+        if i - ant > tol + 1:
+            out.append((int(ini), int(ant) + 1))
+            ini = i
+        ant = i
+    out.append((int(ini), int(ant) + 1))
+    return out
+
+
 def _desloca(img, d):
     """img deslocada d colunas (d>0: valor do vizinho à esquerda)."""
     out = np.zeros_like(img)
