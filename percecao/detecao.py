@@ -43,8 +43,9 @@ def _sobreposicao(a, b):
 
 class Detetor:
     def __init__(self, modelo="yolo11n.pt", conf=0.25, imgsz=640,
-                 usar_track=True, tracker="bytetrack.yaml"):
+                 usar_track=True, tracker="bytetrack.yaml", dispositivo=None):
         self.model = YOLO(modelo)
+        self.extra = {} if dispositivo in (None, "") else {"device": dispositivo}
         self.conf = conf
         self.imgsz = imgsz
         self.usar_track = usar_track
@@ -54,10 +55,10 @@ class Detetor:
     def detetar(self, frame):
         if self.usar_track:
             r = self.model.track(frame, persist=True, conf=self.conf, imgsz=self.imgsz,
-                                 tracker=self.tracker, verbose=False)[0]
+                                 tracker=self.tracker, verbose=False, **self.extra)[0]
         else:
             r = self.model.predict(frame, conf=self.conf, imgsz=self.imgsz,
-                                   verbose=False)[0]
+                                   verbose=False, **self.extra)[0]
 
         grupos = {g: _vazio() for g in GRUPOS}
         if r.boxes is None or len(r.boxes) == 0:

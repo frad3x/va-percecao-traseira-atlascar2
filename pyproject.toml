@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "va-percecao"
+version = "1.0.0"
+description = "Perceção com a câmara traseira do ATLASCAR2 (Veículos Autónomos, grupo G6)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "ultralytics>=8.3",
+    "opencv-python>=4.10",
+    "numpy>=1.26",
+    "lap>=0.5",
+]
+
+[project.optional-dependencies]
+# a aplicação off-line completa (player, gráficos, rosbag sem ROS, 3D)
+app = ["matplotlib>=3.8", "PySide6>=6.6", "mcap>=1.1", "mcap-ros2-support>=0.5", "open3d>=0.18"]
+
+[project.scripts]
+va-percecao = "percecao.__main__:main"
+
+[tool.setuptools]
+packages = ["percecao"]

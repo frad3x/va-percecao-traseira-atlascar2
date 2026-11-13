@@ -1,8 +1,11 @@
 """
 Pacote de perceção (Tema 2 — câmara traseira do ATLASCAR2), versão Python.
 
-Migração do antigo pipeline MATLAB+Python para SÓ Python. O ponto de entrada é
-o ../main.py (basta dar Run). Módulos:
+Núcleo partilhado pela aplicação off-line (../main.py, python -m percecao) e pelo
+nó ROS 2 (ros2_aquisicao/src/va_percecao). Módulos:
+  pipeline      — processa UMA imagem de ponta a ponta (classe Pipeline)
+  app           — a aplicação off-line (fonte -> player, CSV, gráficos)
+  seguranca     — distância, faixa e avisos de segurança
   fontes        — abrir vídeo / pasta de imagens / rosbag MCAP (com acesso aleatório)
   detecao       — YOLO (Ultralytics) com rastreio (IDs) -> veículos/peões/sinais
   linhas        — linhas da faixa (clássica, sem calibração, com suavização temporal)

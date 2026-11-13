@@ -1,0 +1,20 @@
+# Acrescento para usar a GPU NVIDIA na perceção (precisa do NVIDIA Container Toolkit):
+#   docker compose -f compose.yaml -f compose.gpu.yaml up
+# Com GPU, no .env:  MODELO=yolo11m.pt  e  IMGSZ=1280
+services:
+  percecao:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  percecao_bag:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -1,5 +1,9 @@
-# Aquisição da câmara traseira - ATLASCAR2 (Grupo 02)
-# Arranca o driver da câmara + a transformação base_link->camera_tras_link.
+# Câmara traseira do ATLASCAR2 (grupo G6): driver + processamento.
+# 'docker compose up' arranca, sem mais nada, os dois serviços pedidos no enunciado:
+#   camera   — driver da câmara + URDF da câmara (base_link -> camera_tras_link)
+#   percecao — nós ROS 2 'percecao' (deteções) e 'reacao' (reage aos avisos)
+# Ambos vêm do MESMO Dockerfile (etapas 'driver' e 'percecao').
+# O ficheiro .env é OPCIONAL: sem ele usam-se os valores por omissão abaixo.
 # A gravação e o rviz fazem-se com os scripts em scripts/ (entram neste contentor).
 #
 # Uso rápido:
@@ -9,7 +13,9 @@
 services:
   camera:
     build:
-      context: .
+      context: ..                       # pasta do projeto (ver Dockerfile)
+      dockerfile: ros2_aquisicao/Dockerfile
+      target: driver
       args:
         BASE_IMAGE: ${BASE_IMAGE:-ros:jazzy-ros-base}
     image: va_cam_tras:latest
@@ -19,7 +25,8 @@ services:
     # Acesso direto aos dispositivos USB/vídeo (/dev/video*).
     privileged: true
     env_file:
-      - .env
+      - path: .env
+        required: false             # .env é opcional
     environment:
       - DISPLAY=${DISPLAY:-:0}
       - QT_X11_NO_MITSHM=1              # evita que o image_view/rviz rebentem sem janela
@@ -32,20 +39,60 @@ services:
     # Mantém o contentor vivo a publicar a câmara.
     command: ros2 launch /ws/launch/camera_tras.launch.py
 
-  # 2.º serviço: nó de processamento (deteção de peões ao vivo).
-  # Arranca junto com a câmara no 'docker compose up' (driver + processamento,
-  # como o enunciado pede). Usa a MESMA imagem já construída pelo serviço camera.
-  processamento:
-    image: va_cam_tras:latest
-    container_name: va_proc_tras
+  # 2.º serviço: PERCEÇÃO + REAÇÃO ao vivo (pacotes ROS 2 va_percecao_msgs/va_percecao).
+  # Subscreve a imagem do driver e publica agentes, pavimento, avisos de segurança,
+  # marcadores 3D, imagem anotada; o nó 'reacao' reage aos avisos.
+  # Arranca junto com a câmara no 'docker compose up'. Na 1.ª vez: 'docker compose build'
+  # (imagem grande: traz o PyTorch). Com GPU NVIDIA, junta o compose.gpu.yaml:
+  #   docker compose -f compose.yaml -f compose.gpu.yaml up
+  percecao:
+    build:
+      context: ..                       # pasta do projeto (pacote 'percecao' + modelos)
+      dockerfile: ros2_aquisicao/Dockerfile
+      target: percecao
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-ros:jazzy-ros-base}
+    image: va_percecao_tras:latest
+    container_name: va_percecao_tras
     network_mode: host
     env_file:
-      - .env
+      - path: .env
+        required: false             # .env é opcional
     environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_X11_NO_MITSHM=1
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+    volumes:
+      - ./pesos:/ws/pesos               # pesos YOLO descarregados (não volta a descarregar)
+      - /tmp/.X11-unix:/tmp/.X11-unix   # rviz
+      - ${DATA_DIR:-./bags}:/data
     depends_on:
       - camera
-    command: python3 /ws/nodes/deteta_agentes.py
+    command: >
+      ros2 launch va_percecao percecao.launch.py
+      modelo:=${MODELO:-yolo11n.pt} imgsz:=${IMGSZ:-640} rviz:=${RVIZ:-false}
+
+  # Perceção + reação sobre um BAG gravado (sem câmara). Está no profile 'bag':
+  #   BAG=g02_camtras_20261104_160818_percurso1 docker compose run --rm percecao_bag
+  percecao_bag:
+    image: va_percecao_tras:latest
+    network_mode: host
+    env_file:
+      - path: .env
+        required: false             # .env é opcional
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_X11_NO_MITSHM=1
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+    volumes:
+      - ./pesos:/ws/pesos
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${DATA_DIR:-./bags}:/data
+    profiles:
+      - bag
+    command: >
+      ros2 launch va_percecao bag.launch.py bag:=/data/${BAG:-}
+      modelo:=${MODELO:-yolo11n.pt} imgsz:=${IMGSZ:-640} rviz:=${RVIZ:-false}
 
   # Serviço de gravação (opcional, alternativa aos scripts).
   # NÃO arranca no 'docker compose up' (está num profile). Com a câmara já a
@@ -58,7 +105,8 @@ services:
     image: va_cam_tras:latest
     network_mode: host
     env_file:
-      - .env
+      - path: .env
+        required: false             # .env é opcional
     environment:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
       - PERCURSO=${PERCURSO:-percurso1}
@@ -89,7 +137,8 @@ services:
     network_mode: host
     privileged: true
     env_file:
-      - .env
+      - path: .env
+        required: false             # .env é opcional
     environment:
       - DISPLAY=${DISPLAY:-:0}
       - QT_X11_NO_MITSHM=1
