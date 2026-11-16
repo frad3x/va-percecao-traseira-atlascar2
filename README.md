@@ -7,11 +7,10 @@ núcleo (`percecao/pipeline.py`):
 - **Pacote ROS 2 ao vivo** — o nó `percecao` subscreve a câmara e publica o que deteta;
   o nó `reacao` reage aos avisos. Ver "ROS 2 — perceção ao vivo" mais abaixo.
 
-> **Estado dos dados:** a recolha no **percurso real com o ATLASCAR2 ainda não foi feita**.
-> As pastas `g02_camtras_…` em `dados/bags/` são **gravações de teste** da aquisição (só para
-> confirmar que o driver e a gravação funcionam) — não são o percurso. O processamento foi
-> desenvolvido e testado com **vídeos de câmaras traseiras do YouTube** (`dados/bags/vídeos teste/`)
-> e com sequências do Argoverse 2.
+> **Estado dos dados:** o grupo ainda não conseguiu fazer a recolha real do percurso com o
+> carro. As pastas `g02_camtras_…` em `dados/bags/` são apenas de teste, para ver se o código
+> de aquisição de imagem funciona — não são gravações reais do percurso. O processamento foi
+> testado com vídeos de câmaras traseiras do YouTube (`dados/bags/vídeos teste/`).
 
 Deteta, numa só aplicação, com rastreio e estatísticas:
 - **Linhas da faixa** (clássica, **sem calibração**), com a faixa preenchida no vídeo.
@@ -214,8 +213,8 @@ ultralytics, opencv, open3d, mcap). Reinstalar: ver `requirements.txt`. Mantém-
 ## Aquisição (gravar no carro)
 Pasta `ros2_aquisicao/` (corre no PC Ubuntu, ROS 2 em Docker): cor (`docker compose up`)
 e RGB-D (`--profile rgbd`). Ver `ros2_aquisicao/README.md`.
-A cadeia de gravação já foi testada com a câmara (gravações curtas `g02_…`); a recolha
-no percurso real com o carro **está por fazer** (depende da montagem da câmara).
+A câmara já está montada no carro. As gravações `g02_…` são apenas de teste do código de
+aquisição; a recolha real do percurso ainda não foi feita.
 
 ## ROS 2 — perceção ao vivo
 Na mesma pasta, dois pacotes ROS 2 (Jazzy):

@@ -241,6 +241,5 @@ os fps. Queres mais qualidade? sobe (ex. `framerate: 30.0`, `jpeg_quality: 80`).
 - Se não aparecer imagem: experimenta outro `/dev/videoX` e muda `pixel_format`
   para `yuyv` (talvez com `image_width: 640`, `image_height: 480`).
 - `BASE_IMAGE` no `.env`: se os docentes derem uma imagem base, mete-a aí.
-- A aquisição foi testada com a câmara apenas em **gravações curtas de teste**
-  (as pastas `g02_camtras_…` de 04/11). **Ainda não foi feita a recolha no percurso
-  real com o carro** — no carro, confirmar o `video_device` e o `pixel_format`.
+- As pastas `g02_camtras_…` são apenas **gravações de teste** do código de aquisição.
+  A câmara já está montada no carro, mas **a recolha real do percurso ainda não foi feita**.
