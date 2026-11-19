@@ -1,7 +1,7 @@
 """
 avaliacao.py — métricas de deteção (precisão/recall/F1 + MAE) vs ground truth.
 
-Porte de avaliarDeteccoes.m. Emparelhamento greedy por IoU, por grupo.
+Emparelhamento greedy por IoU, por grupo.
 
 gt: lista {1xN}; gt[k] = {'bb':[[x,y,w,h],...], 'classe':['veic'|'peoes'|'sinais',...]}
 (obtém-se do CVAT/Roboflow/labelImg — ver README).

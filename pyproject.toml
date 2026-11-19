@@ -9,7 +9,7 @@ description = "Perceção com a câmara traseira do ATLASCAR2 (Veículos Autóno
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "ultralytics>=8.3",
+    "ultralytics>=8.4",
     "opencv-python>=4.10",
     "numpy>=1.26",
     "lap>=0.5",

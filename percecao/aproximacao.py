@@ -1,7 +1,7 @@
 """
 aproximacao.py — tempo-para-colisão (TTC) dos veículos que seguem atrás.
 
-Porte de analisarAproximacao.m. Distintivo do Tema 2 (câmara traseira): estima
+Distintivo do Tema 2 (câmara traseira): estima
 quão depressa cada veículo rastreado se aproxima, pelo CRESCIMENTO aparente da
 sua caixa (looming). Calibração-independente: usa só a altura da caixa (px).
 

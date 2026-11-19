@@ -6,15 +6,37 @@ Dá uma classe Fonte com:
   .iterar()  -> gera (idx, frame_BGR) por ordem (para o processamento)
   .ler(k)    -> devolve a k-ésima frame (acesso aleatório, para o player)
 
-Para um rosbag MCAP, as frames são exportadas UMA vez para um .avi (em
-dados/frames_bag.avi) e a partir daí é tratado como vídeo — assim o player pode
-recuar/saltar e não se depende de nenhuma toolbox de ROS.
+Para um rosbag MCAP, as frames são exportadas UMA vez para um .avi em
+dados/cache/<nome do bag>.avi e a partir daí é tratado como vídeo — assim o player
+pode recuar/saltar sem ROS. Se a cache já existir (e for mais recente que o bag),
+é reutilizada: abrir o mesmo bag uma 2.ª vez é imediato.
+
+ler_imagem/gravar_imagem: o cv2.imread/imwrite do Windows falha em caminhos com
+acentos (ex. "5º ano"); estas versões funcionam com qualquer caminho.
 """
 import glob
 import os
 
 import cv2
 import numpy as np
+
+
+# ------------------------- imagens (caminhos com acentos) -------------------------
+def ler_imagem(caminho, flags=cv2.IMREAD_COLOR):
+    """cv2.imread que aceita caminhos com acentos (Windows). None se falhar."""
+    try:
+        buf = np.fromfile(str(caminho), dtype=np.uint8)
+    except OSError:
+        return None
+    return cv2.imdecode(buf, flags) if buf.size else None
+
+
+def gravar_imagem(caminho, img, params=()):
+    """cv2.imwrite que aceita caminhos com acentos (Windows). Devolve True/False."""
+    ok, buf = cv2.imencode(os.path.splitext(str(caminho))[1] or ".png", img, list(params))
+    if ok:
+        buf.tofile(str(caminho))
+    return bool(ok)
 
 
 # ------------------------- rosbag MCAP -------------------------
@@ -136,11 +158,17 @@ class Fonte:
         ext = os.path.splitext(str(caminho))[1].lower()
         mcap = encontrar_mcap(caminho) if os.path.isdir(caminho) or ext == ".mcap" else None
 
-        if mcap:                                   # rosbag -> exporta para .avi
+        if mcap:                                   # rosbag -> exporta para .avi (cache)
             if avi_cache is None:
-                avi_cache = os.path.join("dados", "frames_bag.avi")
-            avi, fps, _ = exportar_mcap_para_avi(mcap, avi_cache)
-            self.caminho = avi
+                nome = os.path.splitext(os.path.basename(mcap))[0]
+                avi_cache = os.path.join("dados", "cache", nome + ".avi")
+            if (os.path.isfile(avi_cache) and os.path.getsize(avi_cache) > 0
+                    and os.path.getmtime(avi_cache) >= os.path.getmtime(mcap)):
+                print(f"[fontes] a usar a cache {avi_cache}")
+                fps = 0.0
+            else:
+                avi_cache, fps, _ = exportar_mcap_para_avi(mcap, avi_cache)
+            self.caminho = avi_cache
             self._abrir_video(self.caminho)
             if fps > 0:
                 self.fps = fps
@@ -172,7 +200,9 @@ class Fonte:
         self._ficheiros = sorted(fich)
         if not self._ficheiros:
             raise RuntimeError(f"Sem imagens em {pasta}")
-        im0 = cv2.imread(self._ficheiros[0])
+        im0 = ler_imagem(self._ficheiros[0])
+        if im0 is None:
+            raise RuntimeError(f"Não consegui ler {self._ficheiros[0]}")
         self.n = len(self._ficheiros)
         self.fps = 15.0
         self.altura, self.largura = im0.shape[:2]
@@ -197,7 +227,7 @@ class Fonte:
                 self._pos = k if ok else self._pos
                 return frame if ok else None
             return None
-        return cv2.imread(self._ficheiros[k])
+        return ler_imagem(self._ficheiros[k])
 
     def iterar(self):
         """Gera (idx, frame) por ordem, para o processamento."""
@@ -214,7 +244,7 @@ class Fonte:
                 idx += 1
         else:
             for idx, f in enumerate(self._ficheiros):
-                img = cv2.imread(f)
+                img = ler_imagem(f)
                 if img is not None:
                     yield idx, img
 

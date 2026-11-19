@@ -1,7 +1,7 @@
 """
 percecao3d.py — perceção 3D (RGB-D) para apoio ao estacionamento, com Open3D.
 
-Porte de percecao3D.m. Pipeline das teses do ATLASCAR:
+Pipeline das teses do ATLASCAR:
   1) VOXEL GRID            (voxel_down_sample)
   2) PLANO DO CHÃO (RANSAC)(segment_plane) -> separa chão de obstáculos
   3) SEGMENTAÇÃO           (cluster_dbscan) -> obstáculos

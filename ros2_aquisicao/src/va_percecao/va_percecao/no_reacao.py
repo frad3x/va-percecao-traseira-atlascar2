@@ -141,10 +141,12 @@ class NoReacao(Node):
         acao.comandos = [c for c, _ in ordem]
         acao.nivel = ordem[0][1][0] if ordem else "normal"
         acao.motivo = ordem[0][1][1] if ordem else ""
-        s = self.ultimo_seg
+        # sem dados recentes da câmara não se garante nada: tudo a False
+        sem_dados = "SEM_DADOS_CAMARA" in self.ativos
+        s = None if sem_dados else self.ultimo_seg
         acao.pode_mudar_esquerda = bool(s and s.mudar_esquerda == "livre")
         acao.pode_mudar_direita = bool(s and s.mudar_direita == "livre")
-        acao.pode_fazer_marcha_atras = "PARAR_MARCHA_ATRAS" not in self.ativos
+        acao.pode_fazer_marcha_atras = bool(s) and "PARAR_MARCHA_ATRAS" not in self.ativos
         self.pub_acao.publish(acao)
 
         texto = f"{acao.nivel.upper()}: {acao.motivo}" if acao.comandos else "NORMAL"

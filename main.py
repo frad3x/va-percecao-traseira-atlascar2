@@ -21,7 +21,7 @@ import os
 
 # ========================= CONFIG (edita e dá Run) =========================
 # >>> METE AQUI o caminho do que queres analisar (entre as aspas, depois do r):
-FONTE = r"C:\Users\tomas\OneDrive\Documentos\Universidade\5º ano\VA\Projeto\dados\bags\vídeos teste\videoplayback.mp4"
+FONTE = r"dados\bags\vídeos teste\videoplayback.mp4"   # relativo à pasta do projeto
 #   -> vídeo .avi/.mp4, pasta de imagens, OU pasta/.mcap de um rosbag (converte sozinho)
 #   Exemplos (Windows):
 #     FONTE = r"C:\Users\tomas\Desktop\o_meu_video.mp4"

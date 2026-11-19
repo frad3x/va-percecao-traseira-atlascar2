@@ -1,7 +1,7 @@
 # Calibração da câmara (intrínsecos). TEMPLATE - a preencher após calibração.
-# Enquanto estiver a zeros, as imagens gravam-se na mesma, mas o monoCamera do
-# MATLAB não terá intrínsecos válidos (usa então o método de linhas 'rede', que
-# não precisa de calibração, ou mede a montagem).
+# Enquanto estiver a zeros, as imagens gravam-se na mesma e a perceção funciona
+# (não precisa de calibração); os intrínsecos só serão precisos para projetar pontos
+# de outros sensores na imagem (fusão, Parte 2).
 #
 # Como obter os valores reais (duas opções):
 #  1) No Ubuntu, com a câmara a publicar, correr a calibração do ROS com um

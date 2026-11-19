@@ -15,8 +15,9 @@ float32 y
 float32 largura
 float32 altura
 
-# posicao no chao, no referencial da camara (x para tras do carro, y para a esquerda
-# da IMAGEM), estimada pelo modelo monocular de chao plano. NaN se desconhecida.
+# posicao no chao, no referencial camera_tras_link (x para tras do carro, y para a
+# esquerda da IMAGEM), estimada pelo modelo monocular de chao plano. NaN se desconhecida.
+# (o header traz o frame da imagem: camera_tras_optical_frame)
 float32 distancia         # m
 float32 lateral           # m
 string faixa              # nossa | esquerda | direita | fora   (lado do CARRO); "" se desconhecida

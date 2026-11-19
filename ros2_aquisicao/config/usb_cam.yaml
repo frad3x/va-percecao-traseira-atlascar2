@@ -25,7 +25,9 @@
       compressed:
         jpeg_quality: 40
     # Identificação/calibração
-    camera_frame_id: "camera_tras_link"
+    # referencial ÓTICO (convenção ROS para imagens: z para a frente, x à direita,
+    # y para baixo) — definido no URDF da câmara; é o que se usa para projetar pontos
+    camera_frame_id: "camera_tras_optical_frame"
     camera_name: "camera_tras"
     # Ficheiro de calibração (intrínsecos). Enquanto não calibrares, fica com
     # valores a zero -> as imagens gravam na mesma; os intrínsecos é que não

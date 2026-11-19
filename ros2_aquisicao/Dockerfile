@@ -53,6 +53,7 @@ FROM driver AS percecao
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-jazzy-vision-msgs \
       python3-pip libgl1 libglib2.0-0 \
+      fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # PyTorch: por omissão a versão CUDA 12.8 (funciona também sem GPU, em CPU).

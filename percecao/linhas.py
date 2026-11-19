@@ -9,7 +9,7 @@ Pipeline (com o nome da função MATLAB equivalente):
   3) candidatas: histograma + janelas deslizantes
      + PARÁBOLAS por RANSAC (seguem curvas) ............ findParabolicLaneBoundaries
   4) rejeição: curvatura (validateBoundaryFcn), comprimento mínimo
-     (isOfMinLength) e força >= 40% da maior (strongBoundaries)
+     (isOfMinLength) e força >= 20% da maior (strongBoundaries usa 40%)
   5) tipo de linha: CONTÍNUA / TRACEJADA ................ classifyLaneTypes
   6) faixa do carro = linha mais próxima à esq. e à dir. . leftEgoBoundary/rightEgoBoundary
   7) suavização + confirmação temporal (não tremem nem "piscam")
@@ -44,7 +44,8 @@ import numpy as np
 PARAMS = dict(
     # --- geometria da vista de cima ---
     hfov=66.0,            # campo de visão horizontal (graus). Astra Pro ~66°
-    altura=1.2,           # altura da câmara (m): só dá a escala aproximada em metros
+    altura=1.1,           # altura da câmara (m): só dá a escala aproximada em metros
+                          #   (igual ao CAM_Z do .env e ao altura_camara do nó ROS)
     horizonte=None,       # linha do horizonte (fração da altura); None = AUTOMÁTICO
     horizonte_ini=0.52,   # valor inicial, até haver estimativa pelo ponto de fuga
     v_base=0.92,          # linha mais baixa usada (fração da altura): corta capô / OSD
@@ -193,7 +194,7 @@ class DetetorLinhas:
         y_h = self._horizonte(frame, excluir, H)
         chave = chave_ipm(W, H, y_h, p)
         g, mx, my, valido = geometria(chave)
-        bh, bw = p["bev_h"], p["bev_w"]
+        bw = p["bev_w"]
 
         # --- 1) vista de cima ---
         bev = cv2.remap(frame, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)

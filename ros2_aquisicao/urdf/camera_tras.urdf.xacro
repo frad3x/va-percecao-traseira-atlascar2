@@ -8,10 +8,10 @@
 
   Frames:
     camera_tras_link          — corpo da câmara: x para onde a câmara olha (para TRÁS do
-                                carro), y para a esquerda, z para cima. É o frame_id das
-                                imagens e das deteções.
+                                carro), y para a esquerda, z para cima. Referencial dos
+                                marcadores 3D dos agentes.
     camera_tras_optical_frame — convenção ótica do ROS (z para a frente, x para a direita,
-                                y para baixo), para quem projetar pontos na imagem.
+                                y para baixo). É o frame_id das imagens e das deteções.
   Unidades: metros e radianos. Mede x, y, z e a inclinação no carro (ver .env).
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">

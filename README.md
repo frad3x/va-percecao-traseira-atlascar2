@@ -37,14 +37,15 @@ python/.venv/Scripts/python.exe main.py        # Windows (usa o ambiente já pre
 Ou ativa o ambiente e corre `python main.py`. No topo do `main.py` tens o bloco
 **CONFIG** — muda `FONTE` para o teu vídeo/pasta/bag e dá Run:
 ```python
-FONTE = r"dados/frames_bag.avi"   # .avi/.mp4, pasta de imagens, OU pasta/.mcap de um rosbag
+FONTE = r"dados\bags\vídeos teste\videoplayback.mp4"   # vídeo, pasta de imagens OU pasta/.mcap de um rosbag
 ```
 Aceita **vídeo** (.avi/.mp4/…), **pasta de imagens**, ou **rosbag MCAP** (converte
-sozinho para `dados/frames_bag.avi` e lê daí — sem ROS).
+sozinho para `dados/cache/<bag>.avi` — sem ROS — e reutiliza essa cache nas vezes seguintes).
 
 No fim abre o **player interativo**:
-- **ESPAÇO** play/pausa · **a/d** (ou ←/→) recuar/avançar · **+/−** velocidade ·
-  **barra** saltar para qualquer frame · **q** sair.
+- **ESPAÇO** play/pausa · **A/D** (ou ←/→) recuar/avançar · **+/−** velocidade ·
+  **HOME/END** início/fim · **G** guias de estacionamento · **V** vista de cima ·
+  **barra** saltar para qualquer frame · **Q** sair.
 
 Saídas — cada análise numa pasta própria, `resultados/<gravação>_<data>/`: `deteccoes.csv`
 (todas as caixas), `linhas.csv` (linhas e tipo por frame), `seguranca.csv` (distâncias e
@@ -65,28 +66,24 @@ Instalada como pacote (`pip install ".[app]"`) fica também o comando `va-percec
 | `main.py` | Ponto de entrada da aplicação off-line — basta dar Run |
 | `percecao/pipeline.py` | **Núcleo**: processa uma imagem (usado pela aplicação e pelo nó ROS) |
 | `percecao/app.py`, `percecao/__main__.py` | A aplicação off-line e a sua linha de comandos |
-| `percecao/seguranca.py` | Distância, faixa de cada agente, avisos (distância de segurança, mudança de faixa, ângulo morto, estacionamento) |
-| `ros2_aquisicao/` | Aquisição (driver + gravação) e pacotes ROS 2 `va_percecao_msgs` / `va_percecao` |
-| `percecao/fontes.py` | Vídeo / imagens / rosbag MCAP (com acesso aleatório p/ o player) |
-| `percecao/detecao.py` | YOLO + rastreio (IDs) → veículos/peões/sinais |
-| `percecao/linhas.py` | Linhas da faixa (método da aula 5: vista de cima + parábolas) |
-| `ferramentas/descarregar_argoverse.py` | Imagens de câmaras traseiras (Argoverse 2) para testar |
-| `percecao/sinais.py` | Sinais PT clássicos (cor HSV + forma) |
-| `percecao/sinais_treinados.py` | Sinais com modelos treinados (deteção + 43 tipos) |
-| `treino/treinar_sinais.py`, `treino/` | Descarregar datasets + treinar os modelos de sinais |
-| `percecao/aproximacao.py` | TTC dos veículos que seguem atrás |
-| `percecao/desenho.py` | Overlay das deteções |
-| `percecao/player.py` | Player interativo (OpenCV) |
-| `percecao/exportar.py` / `avaliacao.py` | CSV / métricas vs ground truth |
-| `percecao/percecao3d.py` | Perceção 3D (Open3D): chão + obstáculos + estacionamento |
-| `percecao/profundidade.py` | Profundidade do bag → nuvem de pontos |
 | `percecao/gui.py` | A aplicação de janela |
-| `ferramentas/abrir_app.pyw`, `ferramentas/criar_atalho.py` | Abrir a app sem consola / criar o atalho |
+| `percecao/fontes.py` | Vídeo / imagens / rosbag MCAP (com acesso aleatório p/ o player) |
+| `percecao/detecao.py` | YOLO + rastreio (IDs) → veículos / duas rodas / peões / sinais |
+| `percecao/linhas.py` | Linhas da faixa e marcações (método da aula 5: vista de cima + parábolas) |
+| `percecao/sinais.py`, `percecao/sinais_treinados.py` | Sinais: clássico (cor + forma) / modelos treinados (43 tipos) |
+| `percecao/aproximacao.py` | TTC dos veículos que seguem atrás |
+| `percecao/seguranca.py` | Distância, faixa de cada agente e avisos (distância de segurança, mudança de faixa, ângulo morto, estacionamento) |
+| `percecao/desenho.py`, `percecao/player.py` | Overlay das deteções / player interativo (Qt; recai para OpenCV) |
+| `percecao/exportar.py`, `percecao/avaliacao.py` | CSV / métricas vs ground truth |
+| `percecao/percecao3d.py`, `percecao/profundidade.py` | Perceção 3D (Open3D) / profundidade do bag → nuvem de pontos |
+| `ros2_aquisicao/` | Aquisição (driver + gravação, Docker) e pacotes ROS 2 `va_percecao_msgs` / `va_percecao` |
+| `treino/` | Descarregar os datasets e treinar os modelos de sinais |
+| `ferramentas/` | Atalho e arranque da app sem consola; descarregar imagens do Argoverse 2 |
 | `modelos/` | Pesos: sinais treinados + YOLO base (`yolo11n/m.pt`, descarregam-se sozinhos) |
 | `dados/bags/` | Gravações de **teste** da aquisição (`g02_…`, não são o percurso real) e vídeos de teste |
 | `resultados/` | Uma pasta por análise (CSV, gráficos, vídeo anotado) |
 | `assets/` | Ícone da aplicação |
-| `python/.venv/` | Ambiente Python do projeto |
+| `python/.venv/` | Ambiente Python do projeto (não vai para o GitHub) |
 
 ## Linhas da faixa (`percecao/linhas.py`) — método da aula 5
 Segue o exemplo MATLAB *Visual Perception Using Monocular Camera* da aula 5, passo a

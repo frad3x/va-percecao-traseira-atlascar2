@@ -28,6 +28,7 @@ from pathlib import Path
 import cv2
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # para importar percecao/
+from percecao.fontes import gravar_imagem, ler_imagem  # noqa: E402  (aceitam acentos)
 from percecao.sinais_treinados import CATEGORIA, CATEGORIAS_PT, NOMES_PT  # noqa: E402
 
 # Onde ficam os datasets: VA_DATASETS (se definida) > Projeto/va_datasets (se existir)
@@ -154,15 +155,15 @@ def preparar_gtsdb(modo="categorias"):
     n_sinais = 0
     for i in range(900):
         nome = f"{i:05d}.ppm"
-        img = cv2.imread(str(src / nome))
+        img = ler_imagem(src / nome)
         if img is None:
             continue
         split = "train" if i < 600 else "val"
         h, w = img.shape[:2]
         (out / "images" / split).mkdir(parents=True, exist_ok=True)
         (out / "labels" / split).mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(out / "images" / split / f"{i:05d}.jpg"), img,
-                    [cv2.IMWRITE_JPEG_QUALITY, 95])
+        gravar_imagem(out / "images" / split / f"{i:05d}.jpg", img,
+                      [cv2.IMWRITE_JPEG_QUALITY, 95])
         linhas = []
         for x1, y1, x2, y2, c in anot.get(nome, []):   # imagens sem sinais ficam vazias
             k = CATEGORIA[c] if modo == "categorias" else c
@@ -200,9 +201,9 @@ def preparar_gtsrb(frac_val=0.15, semente=0):
             split = "val" if f.name.split("_")[0] in val else "train"
             dst = out / split / pasta / (f.stem + ".png")
             dst.parent.mkdir(parents=True, exist_ok=True)
-            img = cv2.imread(str(f))
+            img = ler_imagem(f)
             if img is not None:
-                cv2.imwrite(str(dst), img)
+                gravar_imagem(dst, img)
                 if split == "val":
                     n_va += 1
                 else:

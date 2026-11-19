@@ -19,8 +19,8 @@ yolo*.pt
 # Resultados das análises (app, main.py e linha de comandos): uma pasta por análise
 resultados/
 
-# Caches gerados a partir das gravações
-dados/frames_bag.avi
+# Caches gerados a partir das gravações (bag -> .avi; profundidade -> .ply)
+dados/cache/
 dados/nuvens/
 
 # Pesos YOLO descarregados pelo contentor da perceção

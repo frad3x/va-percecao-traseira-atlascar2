@@ -1,9 +1,8 @@
 """
 detecao.py — deteção de agentes com YOLO (Ultralytics) + RASTREIO (IDs).
 
-Substitui, num só passo, o detetor + o rastreador que no MATLAB eram separados:
-o modo .track() do Ultralytics (ByteTrack) deteta E segue os objetos, dando um
-ID estável a cada um — essencial para o TTC e para a trajetória.
+Deteta e segue num só passo: o modo .track() do Ultralytics (ByteTrack) dá um
+ID estável a cada objeto — essencial para o TTC e para a distância ao seguidor.
 
 detetar(frame) devolve um dict por grupo (os 4 do plano de trabalho):
   {'veic':       {'bb':[[x,y,w,h],...], 'sc':[...], 'id':[...], 'tipo':[...]},
