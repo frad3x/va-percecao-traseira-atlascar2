@@ -7,10 +7,11 @@ profundidade.py — profundidade (RGB-D) -> nuvem de pontos.
 
 D em metros (float) ou milímetros (uint16 -> /1000). K = [[fx,0,cx],[0,fy,cy],[0,0,1]].
 """
-import glob
 import os
 
 import numpy as np
+
+from .fontes import encontrar_mcap
 
 
 def nuvem_de_profundidade(D, K):
@@ -27,16 +28,6 @@ def nuvem_de_profundidade(D, K):
 
 
 # ---------------- leitura de um rosbag/MCAP ----------------
-def _encontrar_mcap(fonte):
-    if os.path.isfile(fonte) and fonte.lower().endswith(".mcap"):
-        return fonte
-    if os.path.isdir(fonte):
-        achados = sorted(glob.glob(os.path.join(fonte, "*.mcap")))
-        if achados:
-            return achados[0]
-    return None
-
-
 def _topicos(mcap_path):
     from mcap.reader import make_reader
     prof = info = None
@@ -50,14 +41,12 @@ def _topicos(mcap_path):
                 prof = c.topic
             if info is None and nome.endswith("msg/CameraInfo") and "depth" in t:
                 info = c.topic
-        if prof is None:
-            for c in summary.channels.values():
-                if schemas.get(c.schema_id, "").endswith("msg/Image"):
-                    prof = c.topic; break
-        if info is None:
+        # sem tópico com 'depth' no nome não se adivinha: a imagem a cores não é profundidade
+        if prof is not None and info is None:
             for c in summary.channels.values():
                 if schemas.get(c.schema_id, "").endswith("msg/CameraInfo"):
-                    info = c.topic; break
+                    info = c.topic
+                    break
     return prof, info
 
 
@@ -88,7 +77,7 @@ def _depth_msg_xyz(msg, K):
 def bag_para_plys(fonte, saida_dir, passo=5, maximo=0):
     """Lê a profundidade de um bag e grava uma nuvem .ply por frame. Devolve nº gravadas."""
     import open3d as o3d
-    mcap_path = _encontrar_mcap(fonte)
+    mcap_path = encontrar_mcap(fonte)
     assert mcap_path, f"Sem .mcap em {fonte}"
     prof, info = _topicos(mcap_path)
     assert prof, "Sem tópico de profundidade no bag (gravaste com o driver Orbbec?)."

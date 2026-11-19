@@ -5,6 +5,7 @@ Núcleo partilhado pela aplicação off-line (../main.py, python -m percecao) e 
 nó ROS 2 (ros2_aquisicao/src/va_percecao). Módulos:
   pipeline      — processa UMA imagem de ponta a ponta (classe Pipeline)
   app           — a aplicação off-line (fonte -> player, CSV, gráficos)
+  gui           — a aplicação de janela (python -m percecao.gui)
   seguranca     — distância, faixa e avisos de segurança
   fontes        — abrir vídeo / pasta de imagens / rosbag MCAP (com acesso aleatório)
   detecao       — YOLO (Ultralytics) com rastreio (IDs) -> veículos/peões/sinais
@@ -19,6 +20,7 @@ nó ROS 2 (ros2_aquisicao/src/va_percecao). Módulos:
   profundidade  — profundidade do bag -> nuvem de pontos
 """
 __all__ = [
-    "fontes", "detecao", "linhas", "sinais", "aproximacao", "desenho",
-    "player", "exportar", "avaliacao", "percecao3d", "profundidade",
+    "pipeline", "app", "gui", "seguranca", "fontes", "detecao", "linhas", "sinais",
+    "sinais_treinados", "aproximacao", "desenho", "player", "exportar", "avaliacao",
+    "percecao3d", "profundidade",
 ]

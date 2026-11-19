@@ -72,6 +72,8 @@ class NoPercecao(Node):
         P("limiar_risco", 4.0)                # TTC (s)
         P("camara_traseira", True)            # False em vídeos de câmara frontal
         P("altura_camara", 1.1)               # m (para os marcadores 3D e escala)
+        P("frame_imagem", "camera_tras_optical_frame")   # se a imagem vier sem frame_id
+        P("frame_corpo", "camera_tras_link")  # referencial dos marcadores 3D
         P("publicar_imagem", True)
         P("jpeg_qualidade", 70)
         P("estacionamento", False)            # guias de estacionamento no overlay
@@ -96,6 +98,7 @@ class NoPercecao(Node):
         self.pub_img_on = bool(g("publicar_imagem"))
         self.jpeg_q = int(g("jpeg_qualidade"))
         self.estacionamento = bool(g("estacionamento"))
+        self.frame_imagem, self.frame_corpo = g("frame_imagem"), g("frame_corpo")
 
         self.get_logger().info(f"a carregar os modelos ({g('modelo')}, imgsz {g('imgsz')})...")
         self.pipe = Pipeline(Config(
@@ -183,7 +186,7 @@ class NoPercecao(Node):
         res = self.pipe.processar(frame, t)
         h = msg.header
         if not h.frame_id:
-            h.frame_id = "camera_tras_link"
+            h.frame_id = self.frame_imagem
 
         C = self.conv
         ag = C.agentes(res, h, self.lado_carro)
@@ -191,7 +194,7 @@ class NoPercecao(Node):
         self.pub_det.publish(C.deteccoes(ag))
         self.pub_pav.publish(C.pavimento(res, h, self.lado_carro))
         self.pub_seg.publish(C.seguranca(res, h))
-        self.pub_mk.publish(C.marcadores(res, h, self.altura))
+        self.pub_mk.publish(C.marcadores(res, h, self.altura, self.frame_corpo, self.limiar))
         if self.pub_img_on and self.pub_img.get_subscription_count() > 0:
             import cv2
             anot = self.desenho.desenhar(frame, res, ttc_risco=self.limiar,

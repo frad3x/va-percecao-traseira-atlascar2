@@ -129,9 +129,13 @@ def seguranca(res, header):
     return msg
 
 
-def marcadores(res, header, altura_camara, vida_s=0.3):
-    """Agentes no chão (referencial da câmara: x para trás do carro, y à esquerda da
-    imagem, z para cima; o chão está a -altura_camara) — para ver no rviz."""
+def marcadores(res, header, altura_camara, frame_corpo="camera_tras_link", limiar_risco=4.0,
+               vida_s=0.3):
+    """Agentes no chão, no referencial do CORPO da câmara (camera_tras_link: x para onde
+    a câmara olha = para trás do carro, y à esquerda da imagem, z para cima; o chão está
+    a -altura_camara) — para ver no rviz. (A imagem usa o referencial ótico.)"""
+    from std_msgs.msg import Header
+    header = Header(stamp=header.stamp, frame_id=frame_corpo)
     out = MarkerArray()
     apagar = Marker(header=header, action=Marker.DELETEALL)
     out.markers.append(apagar)
@@ -145,7 +149,7 @@ def marcadores(res, header, altura_camara, vida_s=0.3):
             if d is None or lat is None:
                 continue
             ttc = _get(gr, "ttc", i)
-            risco = ttc is not None and math.isfinite(ttc) and ttc < 4.0
+            risco = ttc is not None and math.isfinite(ttc) and ttc < limiar_risco
             m = Marker(header=header, ns=grupo, id=k, type=Marker.CUBE, action=Marker.ADD)
             m.pose.position = Point(x=float(d) + comp / 2.0, y=float(lat),
                                     z=-altura_camara + alt / 2.0)

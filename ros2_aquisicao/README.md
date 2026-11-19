@@ -52,8 +52,7 @@ dentro do contentor.
    ./scripts/ver_rviz.sh      # alternativa com o rviz
    ```
    > Se a janela **não** abrir, a mensagem de erro aparece no próprio terminal
-   > (o `ver.sh` corre em primeiro plano de propósito). Normalmente basta ter
-   > feito `docker compose up --build` depois destas alterações.
+   > (o `ver.sh` corre em primeiro plano de propósito).
 
 3. **Gravar o percurso** (abre também uma **janela com o vídeo ao vivo**):
    ```bash
@@ -73,9 +72,6 @@ dentro do contentor.
    ```
    Ctrl+C para parar. (Esta via não abre a janela de vídeo; para ver usa o
    `./scripts/ver_rviz.sh`.)
-
-   > Se adicionaste a janela agora, reconstrói a imagem uma vez antes:
-   > `docker compose up --build` (a janela usa o `image_view`, novo no Dockerfile).
 
 4. Repete o passo 3 para outros percursos (`percurso2`, etc.).
 
@@ -155,6 +151,8 @@ o núcleo Python com o YOLO. Quem só precisar da câmara (Parte 2) usa só a et
 (macro `camera_tras`: `camera_tras_link` e `camera_tras_optical_frame`, presos ao
 `base_link`). Enquanto o URDF completo não corre, o serviço `camera` publica-o sozinho
 (`urdf/camera_tras_isolada.urdf.xacro` + `robot_state_publisher`) com a pose do `.env`.
+As imagens e as deteções usam o referencial **ótico** (`camera_tras_optical_frame`,
+convenção ROS); os marcadores 3D dos agentes usam o `camera_tras_link`.
 
 ## O que é gravado
 
@@ -169,9 +167,10 @@ vivo (ver "Sobre uma gravação" acima).
 
 ---
 
-## Calibração dos intrínsecos (opcional, melhora as linhas clássicas)
+## Calibração dos intrínsecos (opcional)
 
-Sem calibração as imagens gravam na mesma; só os intrínsecos ficam inválidos.
+Sem calibração as imagens gravam na mesma e a perceção funciona; os intrínsecos só
+são precisos para projetar pontos de outros sensores na imagem (fusão, Parte 2).
 Para calibrar, com a câmara a publicar, num terminal dentro do contentor
 (`docker compose exec camera bash`):
 ```bash
@@ -222,13 +221,10 @@ python -m percecao.profundidade --fonte <pasta_bag> --saida_dir dados/nuvens
 
 ## Tamanho dos ficheiros
 
-As gravações ficaram mais pequenas sem mexer na arquitetura: em `config/usb_cam.yaml`
-a câmara passou a **15 fps** (`framerate`) e o JPEG gravado tem **qualidade 40**
-(`image_raw.compressed.jpeg_quality`). Juntos, dão ficheiros ~3–4× menores que
-antes. Estes dois valores estão no `./config` (montado no contentor), por isso
-basta **reiniciar** a câmara (`Ctrl+C` e `docker compose up` outra vez) — não é
-preciso reconstruir. Queres ainda mais pequeno? baixa a qualidade (ex. 30) ou
-os fps. Queres mais qualidade? sobe (ex. `framerate: 30.0`, `jpeg_quality: 80`).
+Em `config/usb_cam.yaml` a câmara está a **15 fps** (`framerate`) e o JPEG gravado tem
+**qualidade 40** (`image_raw.compressed.jpeg_quality`): ficheiros ~3–4× menores que com
+30 fps e a qualidade por omissão. O `./config` está montado no contentor, por isso basta
+**reiniciar** a câmara para mudar estes valores (não é preciso reconstruir).
 
 ---
 

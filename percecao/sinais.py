@@ -1,7 +1,7 @@
 """
 sinais.py — deteção clássica de sinalética por COR (HSV) + FORMA (OpenCV).
 
-Porte do detetarSinais.m. O YOLO (COCO) só conhece 'stop sign'; este módulo
+O YOLO (COCO) só conhece 'stop sign'; este módulo
 apanha os restantes sinais PT (perigo, proibição, obrigação, obras) por cor
 dominante (vermelho/azul/amarelo) + forma (triângulo/círculo/octógono).
 
