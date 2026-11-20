@@ -65,6 +65,14 @@ class AnaliseSeguranca:
             y_h = (self.lp["horizonte"] or self.lp["horizonte_ini"]) * H
             g = geometria(chave_ipm(W, H, y_h, self.lp))[0]
         esq, dir_ = lin.get("esq"), lin.get("dir")
+        div = lin.get("divisoria")
+        if div and not (esq or dir_):
+            # sem linhas pintadas: a divisória estimada separa a nossa faixa da do lado
+            # (tipo "estimada": não é tinta, por isso não proíbe mudar de faixa)
+            if np.polyval(div["coef"], 1.0) >= (g["bw"] - 1) / 2.0:
+                dir_ = div
+            else:
+                esq = div
 
         objs = []
         for grupo in ("veic", "duas_rodas", "peoes"):

@@ -49,6 +49,7 @@ COR_ESTADO = {"perigo": VERMELHO, "atencao": AMBAR, "ok": VERDE, "livre": (170, 
 LINHA_ESQ = (40, 40, 235)      # vermelho
 LINHA_DIR = (40, 200, 40)      # verde
 VERDE_FAIXA = (80, 220, 80)    # preenchimento da faixa do carro
+DIVISORIA = (235, 235, 235)    # divisória ESTIMADA (sem linhas pintadas): branco
 
 NOME_PT = {"car": "carro", "truck": "camiao", "bus": "autocarro", "bicycle": "bicicleta",
            "motorcycle": "mota", "person": "peao", "stop sign": "STOP"}
@@ -123,18 +124,39 @@ def _linhas(img, lin, e):
         return
     esq, dir_ = lin.get("esq"), lin.get("dir")
     esp = max(2, int(round(3 * e)))
-    if esq and dir_:                                  # faixa do carro (segue as curvas)
+    visivel = lambda sg: sg and (sg.get("tipo") != "tracejada" or sg.get("tracos") is None
+                                 or bool(sg.get("tracos")))
+    if visivel(esq) and visivel(dir_):               # faixa do carro, só entre linhas que se veem
         poli = np.array(esq["pts"] + dir_["pts"][::-1], np.int32)
         camada = img.copy()
         cv2.fillPoly(camada, [poli], VERDE_FAIXA)
         cv2.addWeighted(camada, 0.22, img, 0.78, 0, dst=img)
     for o in lin.get("outras", []):
-        _polilinha(img, o["pts"], BRANCO, max(1, esp // 2), o.get("tipo") == "tracejada")
+        _desenha_linha(img, o, BRANCO, max(1, esp // 2))
     for seg, cor in ((esq, LINHA_ESQ), (dir_, LINHA_DIR)):
-        if seg:
-            _polilinha(img, seg["pts"], cor, esp + 1, seg.get("tipo") == "tracejada")
+        if seg and _desenha_linha(img, seg, cor, esp + 1):
             u, v = seg["pts"][-1]                      # ponto mais perto do carro
             _rotulo(img, seg.get("tipo", ""), (int(u), int(v) - int(14 * e)), cor, 0.45 * e)
+    div = lin.get("divisoria")
+    if div and not (esq or dir_):                     # sem linhas pintadas: divisória estimada
+        _polilinha(img, div["pts"], DIVISORIA, esp, False)
+        u, v = div["pts"][0]                           # ponto mais perto do carro
+        _rotulo(img, "divisoria (estimada)", (int(u), int(v) - int(14 * e)), (90, 90, 90), 0.42 * e)
+
+
+def _desenha_linha(img, seg, cor, esp):
+    """Contínua: a curva toda. Tracejada: SÓ os traços que lá estão (nunca um padrão
+    inventado). Devolve True se desenhou alguma coisa."""
+    if seg.get("tipo") != "tracejada":
+        _polilinha(img, seg["pts"], cor, esp, False)
+        return True
+    tracos = seg.get("tracos")
+    if tracos is None:                                 # resultados antigos sem 'tracos'
+        _polilinha(img, seg["pts"], cor, esp, True)
+        return True
+    for t in tracos:
+        _polilinha(img, t, cor, esp, False)
+    return bool(tracos)
 
 
 def _polilinha(img, pts, cor, esp, tracejada=False):
@@ -460,6 +482,8 @@ def _vista_de_cima(img, frame, lin, res, e):
     for chave_lado, cor in (("esq", LINHA_ESQ), ("dir", LINHA_DIR)):
         if lin.get(chave_lado):
             _curva_bev(bev, lin[chave_lado], cor, 2)
+    if lin.get("divisoria") and not (lin.get("esq") or lin.get("dir")):
+        _curva_bev(bev, lin["divisoria"], DIVISORIA, 2)
     # objetos no chão (retângulo com a pegada aproximada)
     k = (bh - 1.0) / max(g["x_far"] - g["x_near"], 1e-6)
     for grupo, comp, larg in (("veic", 4.5, 1.8), ("duas_rodas", 2.0, 0.8), ("peoes", 0.6, 0.6)):

@@ -74,6 +74,23 @@ PARAMS = dict(
     largura_faixa=(0.18, 1.05),  # largura plausível da faixa do carro (fração)
     # --- tipo de linha ---
     cobertura_continua=0.88,     # medido: contínuas ~1.00, tracejadas ~0.64 (p90 ~0.8)
+    # --- é mesmo TINTA? (estradas reais: fissuras, bermas, passadeiras, lombas, reflexos) ---
+    ridge_bruto_min=10,   # contraste mínimo SEM o CLAHE (o CLAHE realça texturas do asfalto)
+    traco_min_m=1.2,      # um troço de tinta tem pelo menos isto de comprimento (m); os traços
+                          #   pintados têm 1,5-3 m, os pedaços de lombas e fissuras menos
+    estrutura_min=0.6,    # fração da cobertura em troços >= traco_min_m; abaixo é ruído
+    cobertura_min=0.15,   # uma tracejada cobre pelo menos isto da sua extensão
+    largura_max_m=0.35,   # uma linha pintada tem ~0,10-0,15 m (+ desfocagem e erro de escala);
+                          #   as riscas das passadeiras têm ~0,5 m
+    contraste_min=12,     # tinta - asfalto (o lado mais escuro, a 0,35 m), níveis 0-255, sem
+                          #   CLAHE. Medido: linhas reais 32-117 (mediana); fissuras/terra 0-2
+    # --- sem linhas: divisória ESTIMADA a meio da estrada (asfalto segmentado) ---
+    divisoria=True,
+    estrada_lado=7.0,     # m para cada lado na vista larga usada para achar as bermas
+    estrada_longe=20.0,   # m: até onde se procura a estrada
+    largura_estrada=(4.0, 14.0),   # m: largura plausível da estrada
+    textura_asfalto_max=9.0,       # desvio padrão local máx. do "asfalto" atrás do carro
+                                   #   (medido: asfalto 2-6,5; calçada ~9,7)
     # --- tempo ---
     alpha=0.35,           # suavização (0 = nada muda, 1 = sem suavização)
     memoria=8,            # frames que uma linha "sobrevive" sem ser vista
@@ -226,11 +243,23 @@ class DetetorLinhas:
         r = np.maximum(_ridge(branco.astype(np.float32), tau),
                        _ridge(self._clahe.apply(amarelo).astype(np.float32), tau))
         dentro = cv2.erode(val.astype(np.uint8), np.ones((3, 2 * tau + 1), np.uint8)) > 0
-        marcas = (r >= p["ridge_min"]) & dentro
+        # contraste "a sério" (sem CLAHE): a tinta é mais clara que o asfalto à volta;
+        # o CLAHE sozinho faz de fissuras, juntas e calçada "marcas"
+        self._bruto = (np.minimum(np.minimum(R, G), B).astype(np.float32), amarelo.astype(np.float32))
+        bruto = np.maximum(_ridge(self._bruto[0], tau), _ridge(self._bruto[1], tau))
+        marcas = (r >= p["ridge_min"]) & (bruto >= p["ridge_bruto_min"]) & dentro
         _, lab, st, _ = cv2.connectedComponentsWithStats(marcas.astype(np.uint8), 8)
         manter = st[:, cv2.CC_STAT_AREA] >= p["area_min"]
         manter[0] = False
         marcas = manter[lab]
+        # passadeiras, linhas de paragem (e lombas pintadas) NÃO são linhas da faixa:
+        # as suas barras saem das marcas antes de procurar as linhas
+        marc = self._marcacoes(branco, val, g) if p["marcacoes"] else []
+        # (todas as vistas NESTA imagem, mesmo antes da confirmação temporal do desenho)
+        ppm_r = (p["bev_h"] - 1.0) / max(g["x_far"] - g["x_near"], 1e-6)
+        mr = int(0.6 * ppm_r)
+        for _, r0, r1, _, _ in getattr(self, "_marc_brutas", []):
+            marcas[max(0, r0 - mr):r1 + mr, :] = False
         self._marcas = marcas
 
         # --- 3) candidatas: histograma + janelas deslizantes + RANSAC ---
@@ -240,8 +269,10 @@ class DetetorLinhas:
         fortes = _filtrar(cand, p)
         tol = max(2, int(0.02 * bw))
         marcas_dil = cv2.dilate(marcas.astype(np.uint8), np.ones((1, 2 * tol + 1), np.uint8)) > 0
+        self._marcas_dil = marcas_dil
         for c in fortes:
-            c["tipo"], c["cobertura"] = _tipo_linha(c, marcas_dil, p)
+            c["tipo"], c["cobertura"] = _tipo_linha(c, marcas_dil, marcas, g, p, self._bruto)
+        fortes = [c for c in fortes if c["tipo"]]          # sem estrutura de tinta: não é linha
 
         # --- 6) faixa do carro: mais próxima à esquerda e à direita ---
         prev = {l: (float(np.polyval(e[:3], 1.0)) if e is not None else None)
@@ -253,7 +284,9 @@ class DetetorLinhas:
         out = self._saida(chave, g, ego, outras, y_h)
         # --- 8) outras marcações no pavimento: passadeiras e linhas de paragem ---
         if p["marcacoes"]:
-            out["marcacoes"] = self._marcacoes(branco, val, g)
+            out["marcacoes"] = marc
+        # --- 9) sem linhas: divisória estimada a meio da estrada ---
+        out["divisoria"] = self._divisoria(frame, excluir, g, out["n"] == 0) if p["divisoria"] else None
         return out
 
     def _marcacoes(self, branco, val, g):
@@ -316,6 +349,7 @@ class DetetorLinhas:
             achados = [a for a in achados if a[0] != "linha_paragem"]
             achados.append(("passadeira", barras[0][1], barras[-1][2],
                             min(a[3] for a in barras), max(a[4] for a in barras)))
+        self._marc_brutas = list(achados)
         saida = []
         for tipo in ("passadeira", "linha_paragem"):
             h = self._hist_marc.setdefault(tipo, deque(maxlen=4))
@@ -329,6 +363,62 @@ class DetetorLinhas:
                     saida.append(dict(tipo=tipo, pts=pts, dist=float(dist),
                                       bev=(int(r0), int(r1), int(c0), int(c1))))
         return saida
+
+    # ------------------------------------------------------------------
+    def _tracos(self, coef, rn_top, g):
+        """Troços REAIS de uma tracejada (onde há tinta ao longo da curva), em pontos da
+        imagem: o desenho mostra só os traços que lá estão, nunca um tracejado inventado."""
+        m = getattr(self, "_marcas_dil", None)
+        if m is None:
+            return []
+        bh, bw = m.shape
+        rows = np.arange(int(max(rn_top, 0.0) * (bh - 1)), bh)
+        cols = np.round(np.polyval(coef, rows / (bh - 1.0))).astype(int)
+        ok = (cols >= 0) & (cols < bw)
+        cob = np.zeros(rows.shape, bool)
+        cob[ok] = m[rows[ok], cols[ok]]
+        ppm_r = (bh - 1.0) / max(g["x_far"] - g["x_near"], 1e-6)
+        out = []
+        for a, b in _corridas(cob, int(0.25 * ppm_r)):
+            if b - a >= 0.4 * ppm_r:
+                rn = rows[a:b] / (bh - 1.0)
+                out.append(_troco_para_img(coef, float(rn.min()), float(rn.max()), g))
+        return out
+
+    def _divisoria(self, frame, excluir, g, precisa):
+        """Sem linhas pintadas: divisória ESTIMADA a meio da estrada.
+        Numa vista de cima LARGA (±estrada_lado m) segmenta-se o asfalto pela cor e pela
+        textura (a calçada, a relva e os passeios têm outra cor ou mais textura), a partir
+        do asfalto logo atrás do carro; as bermas são os limites dessa região em cada
+        distância; a divisória é o meio entre as duas (ou, só com a berma do nosso lado,
+        uma largura de faixa para dentro). Suavizada e confirmada no tempo."""
+        p = self.p
+        st = getattr(self, "_div", None)
+        if st is None:
+            st = self._div = dict(y=None, vistos=deque(maxlen=6), falta=0)
+        y_med = _bermas(frame, excluir, g, p)      # sempre (é barato): pronta quando faltarem linhas
+        xs = _XS_DIV(g, p)
+        st["vistos"].append(y_med is not None)
+        if y_med is not None:
+            st["y"] = y_med if st["y"] is None else 0.3 * y_med + 0.7 * st["y"]
+            st["falta"] = 0
+        else:
+            st["falta"] += 1
+            if st["falta"] > 8:
+                st["y"] = None
+        if not precisa or st["y"] is None or sum(st["vistos"]) < 3:
+            return None
+        # curva na imagem + coeficientes no referencial da vista de cima normal (para a
+        # lateral_da_linha e para a faixa de cada agente)
+        pts = [veic_para_img(float(x), float(y), g) for x, y in zip(xs, st["y"])]
+        pts = [[float(u), float(v)] for u, v in pts if np.isfinite(u) and np.isfinite(v)]
+        rn = (g["x_far"] - xs) / max(g["x_far"] - g["x_near"], 1e-6)
+        col = (g["lado"] - st["y"]) * g["ppm"]
+        coef = np.polyfit(rn, col, 2)
+        if len(pts) < 2:
+            return None
+        return dict(pts=pts, tipo="estimada", coef=[float(v) for v in coef],
+                    rn_top=float(max(rn.min(), 0.0)), estimada=True)
 
     # ------------------------------------------------------------------
     def _horizonte(self, frame, excluir, H):
@@ -442,13 +532,16 @@ class DetetorLinhas:
                 if len(pts) >= 2:
                     out[lado] = dict(pts=pts, tipo=tipo, coef=[float(v) for v in e[:3]],
                                      rn_top=float(e[3]),
-                                     cobertura=float(c["cobertura"]) if c else None)
+                                     cobertura=float(c["cobertura"]) if c else None,
+                                     tracos=self._tracos(e[:3], e[3], g) if tipo == "tracejada" else None)
         for c in outras:
             pts = curva_para_img(c["coef"], c["rn_min"], g, n=25)
             if len(pts) >= 2:
                 out["outras"].append(dict(pts=pts, tipo=c["tipo"],
                                           coef=[float(v) for v in c["coef"]],
-                                          rn_top=c["rn_min"]))
+                                          rn_top=c["rn_min"],
+                                          tracos=self._tracos(c["coef"], c["rn_min"], g)
+                                          if c["tipo"] == "tracejada" else None))
         out["n"] = int(out["esq"] is not None) + int(out["dir"] is not None)
         return out
 
@@ -564,15 +657,195 @@ def _filtrar(cand, p):
     return unicos
 
 
-def _tipo_linha(c, marcas_dil, p):
+def _troco_para_img(coef, rn0, rn1, g, n=8):
+    rn = np.linspace(rn0, rn1, n)
+    col = np.polyval(coef, rn)
+    x = g["x_far"] - rn * (g["x_far"] - g["x_near"])
+    y = g["lado"] - col / g["ppm"]
+    return [[float(u), float(v)] for u, v in (veic_para_img(a, b, g) for a, b in zip(x, y))]
+
+
+def _XS_DIV(g, p):
+    """Distâncias (m) a que se descreve a divisória estimada."""
+    return np.linspace(g["x_near"], min(p["estrada_longe"], max(g["x_far"], g["x_near"] + 4)), 12)
+
+
+@lru_cache(maxsize=8)
+def _ipm_largo(chave, lado, longe, bw=160, bh=160):
+    """Vista de cima LARGA (±lado m, até 'longe' m) com o mesmo modelo de câmara."""
+    g = geometria(chave)[0]
+    xs = np.linspace(longe, g["x_near"], bh)
+    ys = np.linspace(lado, -lado, bw)
+    xx, yy = np.meshgrid(xs, ys, indexing="ij")
+    zc = xx * g["c"] + g["h"] * g["s"]
+    u = g["cx"] - g["f"] * yy / zc
+    v = g["cy"] + g["f"] * (g["h"] * g["c"] - xx * g["s"]) / zc
+    valido = (u >= 0) & (u <= g["W"] - 1) & (v >= 0) & (v <= g["H"] - 1) & (zc > 0)
+    return u.astype(np.float32), v.astype(np.float32), valido, xs, ys
+
+
+def _bermas(frame, excluir, g, p):
+    """Lateral (m) da divisória estimada às distâncias _XS_DIV, ou None."""
+    lado, longe = p["estrada_lado"], p["estrada_longe"]
+    mx, my, valido, xs, ys = _ipm_largo(tuple(chave_ipm(g["W"], g["H"], g["y_h"], dict(
+        hfov=math.degrees(2 * math.atan((g["W"] / 2.0) / g["f"])), altura=g["h"],
+        v_base=p["v_base"], frac_topo=p["frac_topo"], bev_w=g["bw"], bev_h=g["bh"]))), lado, longe)
+    bev = cv2.remap(frame, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    bh, bw = valido.shape
+    carros = np.zeros(valido.shape, bool)
+    if len(excluir):
+        m = np.zeros(frame.shape[:2], np.uint8)
+        for bb in excluir:
+            x, y, w_, h_ = [int(v) for v in bb]
+            cv2.rectangle(m, (x - 4, y - 4), (x + w_ + 4, y + h_ + 4), 255, -1)
+        carros = cv2.remap(m, mx, my, cv2.INTER_NEAREST) > 0
+    lab = cv2.cvtColor(cv2.GaussianBlur(bev, (5, 5), 0), cv2.COLOR_BGR2LAB).astype(np.float32)
+    L, A, Bc = lab[:, :, 0], lab[:, :, 1], lab[:, :, 2]
+    # asfalto de referência: logo atrás do carro, ao centro
+    ref = np.zeros(valido.shape, bool)
+    ref[int(0.8 * bh):, int(0.42 * bw):int(0.58 * bw)] = True
+    ref &= valido & ~carros
+    if ref.sum() < 80:
+        return None
+    Lr, Ar, Br = (float(np.median(c[ref])) for c in (L, A, Bc))
+    Ls = max(6.0, 1.4826 * float(np.median(np.abs(L[ref] - Lr))))
+    # textura local (desvio padrão de L numa janela 7x7): calçada e relva têm mais
+    mu = cv2.blur(L, (7, 7))
+    tex = np.sqrt(np.maximum(cv2.blur(L * L, (7, 7)) - mu * mu, 0))
+    tex_r = float(np.median(tex[ref]))
+    if tex_r > p["textura_asfalto_max"]:   # o que está atrás do carro não é asfalto liso
+        return None                         #   (calçada, terra, relva): não se estima nada
+    estrada = (np.abs(L - Lr) < max(22.0, 3.5 * Ls)) & (np.abs(A - Ar) < 7) & \
+              (np.abs(Bc - Br) < 9) & (tex < max(9.0, 2.2 * tex_r)) & valido
+    estrada = cv2.morphologyEx(estrada.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    estrada = cv2.morphologyEx(estrada, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8)) > 0
+    n, lbl = cv2.connectedComponents(estrada.astype(np.uint8), connectivity=4)
+    if n < 2:
+        return None
+    ids, cont = np.unique(lbl[ref & estrada], return_counts=True)
+    ids, cont = ids[ids > 0], cont[ids > 0]
+    if ids.size == 0:
+        return None
+    reg = lbl == ids[np.argmax(cont)]
+    pe, pd, pm = [], [], []             # (x, y) das bermas esq./dir. da imagem e do meio
+    c0 = bw // 2
+    for r in range(bh - 1, int(0.15 * bh), -2):
+        lin = reg[r]
+        if not lin[c0]:
+            cols = np.flatnonzero(lin)
+            if cols.size == 0:
+                continue
+            c0r = int(cols[np.argmin(np.abs(cols - c0))])
+        else:
+            c0r = c0
+        a = c0r
+        while a > 0 and lin[a - 1]:
+            a -= 1
+        b = c0r
+        while b < bw - 1 and lin[b + 1]:
+            b += 1
+        # só conta como berma se do outro lado há chão VISTO e não um carro
+        ok_e = a > 2 and valido[r, a - 3] and not carros[r, max(a - 4, 0):a].any()
+        ok_d = b < bw - 3 and valido[r, b + 3] and not carros[r, b + 1:b + 5].any()
+        if ok_e:
+            pe.append((xs[r], ys[a]))
+        if ok_d:
+            pd.append((xs[r], ys[b]))
+        if ok_e and ok_d and p["largura_estrada"][0] <= ys[a] - ys[b] <= p["largura_estrada"][1]:
+            pm.append((xs[r], (ys[a] + ys[b]) / 2.0))      # o meio da estrada nesta distância
+    xq = _XS_DIV(g, p)
+
+    def ajusta(pts, a_max=0.25):
+        if len(pts) < 10:
+            return None
+        P = np.array(pts)
+        best = None
+        rng = np.random.default_rng(1)
+        for _ in range(40):                      # reta robusta y = a·x + b (RANSAC)
+            i, j = rng.choice(len(P), 2, replace=False)
+            if abs(P[i, 0] - P[j, 0]) < 1.0:
+                continue
+            a = (P[j, 1] - P[i, 1]) / (P[j, 0] - P[i, 0])
+            if abs(a) > a_max:                   # segue (mais ou menos) a direção da estrada
+                continue
+            bb = P[i, 1] - a * P[i, 0]
+            inl = np.abs(P[:, 1] - (a * P[:, 0] + bb)) < 0.35
+            if best is None or inl.sum() > best[0]:
+                best = (inl.sum(), inl)
+        if best is None or best[0] < max(8, 0.5 * len(P)):
+            return None
+        a, bb = np.polyfit(P[best[1], 0], P[best[1], 1], 1)
+        return (a * xq + bb) if abs(a) <= a_max else None
+
+    # 1) as duas bermas vistas: o MEIO da estrada em cada distância. É robusto a um
+    #    horizonte ligeiramente errado (as bermas abrem ou fecham por igual; o meio não)
+    ym = ajusta(pm)
+    if ym is not None:
+        return ym
+    # (só com uma berma não se estima: no vídeo real dava divisórias tortas)
+    return None
+
+
+def _tipo_linha(c, marcas_dil, marcas, g, p, bruto=None):
     """Contínua vs tracejada pela fração da extensão com marca (classifyLaneTypes).
     marcas_dil = máscara das marcas alargada na horizontal (tolerância)."""
     bh, bw = marcas_dil.shape
-    rows = np.arange(int(c["rn_min"] * (bh - 1)), int(c["rn_max"] * (bh - 1)) + 1, 2)
+    rows = np.arange(int(c["rn_min"] * (bh - 1)), int(c["rn_max"] * (bh - 1)) + 1)
     cols = np.round(np.polyval(c["coef"], rows / (bh - 1.0))).astype(int)
     ok = (cols >= 0) & (cols < bw)
-    cob = float(marcas_dil[rows[ok], cols[ok]].mean()) if ok.any() else 0.0
-    return ("continua" if cob >= p["cobertura_continua"] else "tracejada"), cob
+    if not ok.any():
+        return None, 0.0
+    rows, cols = rows[ok], cols[ok]
+    v = marcas_dil[rows, cols]
+    cob = float(v.mean())
+    ppm_r = (bh - 1.0) / max(g["x_far"] - g["x_near"], 1e-6)
+    # estrutura: a tinta aparece em TROÇOS com comprimento (traços de >= traco_min_m);
+    # fissuras, calçada e reflexos dão pedacinhos soltos
+    tracos = [b - a for a, b in _corridas(v, int(0.15 * ppm_r))]
+    longos = sum(t for t in tracos if t >= p["traco_min_m"] * ppm_r)
+    estrutura = longos / max(float(v.sum()), 1.0)
+    # largura da TINTA: zona clara (acima de meia altura entre o asfalto e o pico) à volta da
+    # linha, no canal sem CLAHE. Uma linha tem ~0,10-0,15 m; a borda de uma risca larga de
+    # passadeira (~0,5 m) ou de uma lomba parece uma "marca" fina no ridge, mas a tinta é larga
+    if bruto is not None:
+        canal = bruto[0]
+        larg = []
+        lim = int(0.8 * g["ppm"])
+        for r, c_ in zip(rows[v][::3], cols[v][::3]):
+            a0, b0 = max(0, c_ - lim), min(bw, c_ + lim + 1)
+            perfil = canal[r, a0:b0]
+            k = int(np.argmax(perfil[max(0, c_ - a0 - 3):c_ - a0 + 4])) + max(0, c_ - a0 - 3)
+            fundo = float(np.percentile(perfil, 20))
+            meio = fundo + 0.5 * (float(perfil[k]) - fundo)
+            if perfil[k] - fundo < 8:
+                continue
+            a, b = k, k
+            while a > 0 and perfil[a - 1] >= meio:
+                a -= 1
+            while b < len(perfil) - 1 and perfil[b + 1] >= meio:
+                b += 1
+            larg.append(b - a + 1)
+        if larg and np.median(larg) / g["ppm"] > p["largura_max_m"]:
+            return None, cob
+    # contraste real (sem CLAHE): a tinta é bem mais clara do que o asfalto dos dois lados
+    if bruto is not None and v.any():
+        off = max(2, int(0.35 * g["ppm"]))
+        rr, cc = rows[v], cols[v]
+        contr = -1e9
+        for canal in bruto:
+            dentro = canal[rr, cc]
+            # contra o lado mais ESCURO: junto a um passeio ao sol (lado claro) a tinta
+            # continua a destacar-se do asfalto; uma fissura ou terra não se destaca de nada
+            lados = np.minimum(canal[rr, np.clip(cc - off, 0, bw - 1)],
+                               canal[rr, np.clip(cc + off, 0, bw - 1)])
+            contr = max(contr, float(np.median(dentro - lados)))
+        if contr < p["contraste_min"]:
+            return None, cob
+    if cob >= p["cobertura_continua"]:
+        return "continua", cob
+    if cob >= p["cobertura_min"] and longos > 0 and estrutura >= p["estrutura_min"]:
+        return "tracejada", cob
+    return None, cob
 
 
 def _faixa_do_carro(fortes, p, prev=None):
