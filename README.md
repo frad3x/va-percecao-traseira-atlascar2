@@ -239,6 +239,16 @@ Segue o exemplo *Visual Perception Using Monocular Camera* da aula 5, passo a pa
 - **Sem saltos**: cada linha é procurada primeiro perto de onde estava; uma posição muito
   diferente só é aceite se se repetir em 5 imagens seguidas (mudança de faixa real). Nos vídeos
   de teste, os saltos entre imagens seguidas passaram de 12–147 por lado para 0–4.
+- **Só tinta verdadeira** (estradas reais, com fissuras, remendos, calçada, passadeiras e
+  lombas): uma candidata só é linha se for **estreita** (≤ 0,30 m), **contrastar** com o
+  asfalto (≥ 12 níveis, sem o realce de contraste; medido: linhas 32–117, fissuras e terra 0–2)
+  e tiver a **estrutura** de tinta (traços de ≥ 1,2 m, não pedaços soltos); as barras das
+  passadeiras e linhas de paragem saem da procura. Uma tracejada é desenhada **só nos traços
+  que lá estão** — nunca um padrão inventado — e a faixa verde só aparece com duas linhas reais.
+- **Sem linhas: divisória estimada.** Numa vista de cima larga (±7 m) segmenta-se o asfalto
+  (cor e textura, a partir do asfalto logo atrás do carro); em cada distância o meio entre as
+  bermas dá a divisória, desenhada como **linha contínua branca "divisória (estimada)"**. Não é
+  tinta: não proíbe mudar de faixa, mas serve para saber em que faixa está cada veículo.
 
 | Vídeo de teste | 2 linhas | Tipo certo (esq. / dir.) |
 |---|---|---|
