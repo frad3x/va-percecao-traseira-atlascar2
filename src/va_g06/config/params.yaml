@@ -1,0 +1,70 @@
+# Parâmetros dos nós do grupo G6 (câmara traseira) e do planeador comum.
+# "/**/<nó>" aplica-se ao nó com esse nome em qualquer namespace (/g06, ...).
+# Com o compose, mudar um valor aqui exige 'docker compose build' (ou usar o devcontainer).
+
+/**/percecao:
+  ros__parameters:
+    image_topic: /atlascar2/camera_tras/image_raw/compressed
+    comprimida: true               # false -> subscreve sensor_msgs/Image (raw)
+    velocidade_topic: /atlascar2/velocidade   # std_msgs/Float32 (m/s); "" para desligar
+    # Modelos. Com GPU NVIDIA: yolo11m.pt + 1280. Só CPU: yolo11n.pt + 640.
+    modelo: modelos/yolo11m.pt     # relativo à pasta do projeto no contentor
+    imgsz: 1280
+    conf: 0.25
+    dispositivo: ""                # "" automático | "cpu" | "0"
+    sinais_det: modelos/sinais_det.pt    # relativos à pasta do projeto no contentor
+    sinais_cls: modelos/sinais_cls.pt
+    sinais_pt: modelos/sinais_pt_cls.pt  # sinais portugueses (código + nome do RST)
+    linhas: true
+    linhas_params: "{}"            # JSON, ex. '{"v_base": 0.85}'
+    seguranca_params: "{}"         # JSON, ex. '{"dist_seguranca": 15}'
+    limiar_risco: 1.0              # TTC (s): perigo só com 1 s ou menos
+    camara_traseira: true
+    altura_camara: 1.1             # m (igual ao CAM_Z do .env)
+    publicar_imagem: true          # só codifica se alguém estiver a ver o tópico
+    jpeg_qualidade: 70
+    estacionamento: false          # guias de estacionamento no overlay
+    # --- grelha local (aula 10): nav_msgs/OccupancyGrid no base_link, zona ATRÁS ---
+    publicar_grelha: true
+    frame_grelha: base_link
+    resolucao: 0.2
+    x_min: -35.0                   # câmara traseira: a grelha cobre a zona atrás do carro
+    x_max: 5.0
+    y_min: -10.0
+    y_max: 10.0
+    alcance_livre: 30.0            # m de chão visível marcado como livre
+    hfov: 66.0                     # campo de visão horizontal (Astra Pro)
+    linhas_continuas_ocupadas: true
+
+/**/reacao:
+  ros__parameters:
+    marcha_atras_topic: /atlascar2/marcha_atras   # std_msgs/Bool
+    pisca_topic: /atlascar2/pisca                 # std_msgs/String: esquerda | direita | ""
+    retencao_s: 1.0
+    timeout_s: 1.5
+    dist_parar: 1.0
+    dist_abrandar: 2.5
+    dist_peao: 4.0
+
+/**/camara_simulada:
+  ros__parameters:
+    video: ""                      # vídeo em /data; vazio = estrada sintética
+    metade: ""                     # "esquerda": só a metade RGB de um vídeo lado a lado
+    fps: 15.0
+
+# Planeador comum (va_planeamento). Câmara traseira: avalia a MUDANÇA DE FAIXA —
+# o objetivo é a faixa ao lado, atrás do carro. BLOQUEADO = mudança insegura
+# (veículo a aproximar-se nessa faixa, ou linha contínua).
+/**/local_astar:
+  ros__parameters:
+    frequencia: 5.0
+    objetivo_x: -20.0              # 20 m atrás do carro...
+    objetivo_y: 3.5                # ...na faixa da ESQUERDA (-3.5 = faixa da direita)
+    raio_inflacao: 1.0             # meia largura do ATLASCAR2 (~0,75 m) + margem
+    peso_heuristica: 1.0
+    desconhecido_livre: true
+    # corredor = a estrada: a nossa faixa e as duas ao lado (3 x 3,5 m). Sem isto o A*
+    # contorna os carros pelo passeio/estacionamento e diria "mudança possível" (fig. 2b da aula)
+    corredor_y_min: -5.25
+    corredor_y_max: 5.25
+    limiar_desvio: 0.3

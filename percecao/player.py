@@ -15,7 +15,7 @@ Como as deteções já estão calculadas, recuar/saltar é instantâneo.
 from . import desenho
 
 
-def reproduzir(fonte, resultados, stats=None, fps=15.0, ttc_risco=4.0, estacionamento=False,
+def reproduzir(fonte, resultados, stats=None, fps=15.0, ttc_risco=1.0, estacionamento=False,
                bloquear=True):
     """bloquear=False: dentro de uma app Qt já a correr — devolve a janela (guarda-a!)."""
     if not resultados:

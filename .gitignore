@@ -1,33 +1,32 @@
-# Ambiente Python (recria-se com requirements.txt — ver README)
-python/.venv/
-.venv/
+# Gerado pelo colcon
+build/
+install/
+log/
+
+# Bags e vídeos: ficam no disco/SSD, não no GitHub (ver README -> Dados)
+data/*
+!data/.gitkeep
+
+# Python
 __pycache__/
 *.pyc
 *.egg-info/
+.venv/
+python/.venv/
+.pytest_cache/
 
-# Definições locais (caminhos pessoais)
+# Definições locais
 .vscode/
-ros2_aquisicao/.env
 
-# Pesos base do YOLO: descarregam-se sozinhos para modelos/ na 1.ª execução
+# Pesos base do YOLO: descarregam-se sozinhos (e a imagem Docker já os traz)
 modelos/yolo11*.pt
 yolo*.pt
 
 # Caches que o Ultralytics recria
 *.cache
 
-# Resultados das análises (app, main.py e linha de comandos): uma pasta por análise
+# Resultados das análises da aplicação off-line: uma pasta por análise
 resultados/
 
-# Caches gerados a partir das gravações (bag -> .avi; profundidade -> .ply)
-dados/cache/
-dados/nuvens/
-
-# Pesos YOLO descarregados pelo contentor da perceção
-ros2_aquisicao/pesos/*
-!ros2_aquisicao/pesos/.gitkeep
-
-# Build do ROS 2 (se compilares fora do Docker)
-ros2_aquisicao/build/
-ros2_aquisicao/install/
-ros2_aquisicao/log/
+# Dataset sintético dos sinais PT (regenera-se com treino/sinais_pt.py)
+va_datasets/sinais_pt/sintetico/

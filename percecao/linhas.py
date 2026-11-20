@@ -12,7 +12,8 @@ Pipeline (com o nome da função MATLAB equivalente):
      (isOfMinLength) e força >= 20% da maior (strongBoundaries usa 40%)
   5) tipo de linha: CONTÍNUA / TRACEJADA ................ classifyLaneTypes
   6) faixa do carro = linha mais próxima à esq. e à dir. . leftEgoBoundary/rightEgoBoundary
-  7) suavização + confirmação temporal (não tremem nem "piscam")
+  7) seguimento + suavização + confirmação temporal: cada linha procura-se perto de
+     onde estava; um salto só é aceite se se repetir (não tremem, piscam nem saltam)
 
 Sem calibração: a vista de cima é definida RELATIVAMENTE À IMAGEM — a linha de
 baixo cobre a largura da imagem e o topo fica a uma fração do caminho até ao
@@ -78,7 +79,11 @@ PARAMS = dict(
     memoria=8,            # frames que uma linha "sobrevive" sem ser vista
     confirmar_n=6,        # um lado só aparece se foi visto em >= k das
     confirmar_k=3,        #   últimas n frames (corta "piscares")
-    salto_max=0.12,       # salto maior que isto (fração) reinicia a suavização
+    salto_max=0.12,       # salto maior que isto (fração) = posição nova "suspeita"
+    confirmar_salto=5,    # ... só é aceite se se repetir em k frames seguidas (mudança de
+                          #   faixa real); se não, ignora-se (era uma linha errada)
+    seguir=0.08,          # procura a linha de cada lado a menos disto (fração) de onde
+                          #   estava antes, antes de escolher pela proximidade ao centro
     # --- outras marcações no pavimento ---
     marcacoes=True,       # passadeiras e linhas de paragem (na vista de cima)
 )
@@ -179,6 +184,7 @@ class DetetorLinhas:
         self._k = 0
         self._estado = {"esq": None, "dir": None}    # (a, b, c, rn_top) suavizados
         self._falta = {"esq": 0, "dir": 0}
+        self._pendente = {"esq": [], "dir": []}      # posições "suspeitas" seguidas
         n = self.p["confirmar_n"]
         self._vistos = {"esq": deque(maxlen=n), "dir": deque(maxlen=n)}
         self._tipo = {"esq": deque(maxlen=9), "dir": deque(maxlen=9)}
@@ -238,7 +244,9 @@ class DetetorLinhas:
             c["tipo"], c["cobertura"] = _tipo_linha(c, marcas_dil, p)
 
         # --- 6) faixa do carro: mais próxima à esquerda e à direita ---
-        ego = _faixa_do_carro(fortes, p)
+        prev = {l: (float(np.polyval(e[:3], 1.0)) if e is not None else None)
+                for l, e in self._estado.items()}
+        ego = _faixa_do_carro(fortes, p, prev)
         outras = [c for c in fortes if c is not ego.get("esq") and c is not ego.get("dir")]
         self.debug = dict(n_marcas=int(marcas.sum()), n_cand=len(cand),
                           n_fortes=len(fortes), horizonte=y_h)
@@ -394,16 +402,30 @@ class DetetorLinhas:
                "horizonte": y_h}
         for lado in ("esq", "dir"):
             c = ego.get(lado)
-            self._vistos[lado].append(c is not None)
+            em_espera = False
             if c is not None:
                 novo = np.array(list(c["coef"]) + [c["rn_min"]], float)
                 ant = self._estado[lado]
-                salto = ant is not None and abs(np.polyval(novo[:3], 1.0) -
-                                                np.polyval(ant[:3], 1.0)) > p["salto_max"] * bw
-                if ant is not None and not salto:
-                    novo = p["alpha"] * novo + (1 - p["alpha"]) * ant
+                col = float(np.polyval(novo[:3], 1.0))
+                salto = ant is not None and abs(col - np.polyval(ant[:3], 1.0)) > p["salto_max"] * bw
                 if salto:
-                    self._tipo[lado].clear()
+                    # posição nova longe da anterior: só se aceita se se mantiver
+                    # (mudança de faixa real); uma deteção isolada é ignorada
+                    pend = self._pendente[lado]
+                    if pend and abs(col - pend[-1]) > p["salto_max"] * bw:
+                        pend.clear()                  # nem sequer é consistente consigo
+                    pend.append(col)
+                    if len(pend) >= p["confirmar_salto"]:
+                        pend.clear()
+                        self._tipo[lado].clear()
+                    else:
+                        c, em_espera = None, True     # mantém a anterior por agora
+                else:
+                    self._pendente[lado].clear()
+                    if ant is not None:
+                        novo = p["alpha"] * novo + (1 - p["alpha"]) * ant
+            self._vistos[lado].append(c is not None or em_espera)
+            if c is not None:
                 self._estado[lado] = novo
                 self._falta[lado] = 0
                 self._tipo[lado].append(c["tipo"])
@@ -512,7 +534,7 @@ def _ransac_parabola(rn, col, tol, it=60):
 
 
 def _filtrar(cand, p):
-    """Validação da aula: curvatura, comprimento mínimo, força >= 40% da maior,
+    """Validação da aula: curvatura, comprimento mínimo, força >= 20% da maior,
     e remoção de duplicados (a mesma linha encontrada por duas sementes)."""
     bw = p["bev_w"]
     bons = []
@@ -553,18 +575,43 @@ def _tipo_linha(c, marcas_dil, p):
     return ("continua" if cob >= p["cobertura_continua"] else "tracejada"), cob
 
 
-def _faixa_do_carro(fortes, p):
+def _faixa_do_carro(fortes, p, prev=None):
     """Linha forte mais próxima do eixo da câmara de cada lado (como a aula),
-    exigindo uma largura de faixa plausível entre as duas."""
+    exigindo uma largura de faixa plausível entre as duas.
+    prev = {'esq': col, 'dir': col} onde estavam as linhas na frame anterior:
+    primeiro procura-se cada linha PERTO de onde estava (seguimento) — assim, se a
+    linha certa falhar numa frame, não se salta para a da faixa ao lado."""
     if not fortes:
         return {}
     bw = p["bev_w"]
     meio = (bw - 1) / 2.0
     for c in fortes:
         c["col_base"] = float(np.polyval(c["coef"], 1.0))     # junto ao carro
+    lmin, lmax = p["largura_faixa"][0] * bw, p["largura_faixa"][1] * bw
+    if prev:
+        seg = {}
+        for lado in ("esq", "dir"):
+            if prev.get(lado) is None:
+                continue
+            perto = [c for c in fortes if abs(c["col_base"] - prev[lado]) <= p["seguir"] * bw]
+            if perto:
+                seg[lado] = min(perto, key=lambda c: abs(c["col_base"] - prev[lado]))
+        if len(seg) == 2 and (seg["esq"] is seg["dir"] or
+                              not lmin <= seg["dir"]["col_base"] - seg["esq"]["col_base"] <= lmax):
+            seg = {}                                   # incoerente: escolhe de novo
+        if len(seg) == 2:
+            return seg
+        if len(seg) == 1:                             # um lado seguido; o outro pela regra
+            (lado, c0), = seg.items()
+            if lado == "esq":
+                outros = [d for d in fortes if lmin <= d["col_base"] - c0["col_base"] <= lmax]
+                outros.sort(key=lambda d: d["col_base"])
+                return {"esq": c0, "dir": outros[0]} if outros else seg
+            outros = [e for e in fortes if lmin <= c0["col_base"] - e["col_base"] <= lmax]
+            outros.sort(key=lambda e: -e["col_base"])
+            return {"esq": outros[0], "dir": c0} if outros else seg
     esq = sorted([c for c in fortes if c["col_base"] < meio], key=lambda c: meio - c["col_base"])
     dir_ = sorted([c for c in fortes if c["col_base"] >= meio], key=lambda c: c["col_base"] - meio)
-    lmin, lmax = p["largura_faixa"][0] * bw, p["largura_faixa"][1] * bw
     for e in esq[:3]:                                  # par plausível mais interior
         for d in dir_[:3]:
             if lmin <= d["col_base"] - e["col_base"] <= lmax:

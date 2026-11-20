@@ -1,0 +1,120 @@
+# Projeto do grupo G6 — câmara traseira do ATLASCAR2:
+#   câmara -> perceção (deteções + grelha local) -> planeador local (A*)   (+ reação aos avisos)
+# O GRUPO, o ROS_DOMAIN_ID, o BAG e a pose da câmara vêm do ficheiro .env.
+#
+#   docker compose build
+#   docker compose --profile simulado up              -> câmara simulada + perceção + planeador
+#   docker compose --profile reproduzir up            -> o mesmo, com um bag gravado (BAG=...)
+#   docker compose --profile sensor up                -> com a câmara real ligada (Linux)
+#   ... --profile gravar                              -> grava câmara + resultados em ./data
+#   ... --profile foxglove                            -> foxglove_bridge (porta 8765)
+#   ... --profile rviz                                -> rviz2 (Linux, X11)
+#   docker compose --profile rgbd up camera_rgbd      -> câmara RGB-D (driver Orbbec, profundidade)
+# Com GPU NVIDIA:  docker compose -f compose.yaml -f compose.gpu.yaml ... up
+
+x-ros: &ros
+  build:
+    context: .
+    args:
+      BASE_IMAGE: ${BASE_IMAGE:-ros:jazzy-ros-base}
+      TORCH_INDEX: ${TORCH_INDEX:-https://download.pytorch.org/whl/cu128}
+  image: va/${GRUPO:-g06}:latest
+  network_mode: host          # Linux: o contentor usa a rede do portátil (sensores, DDS)
+  ipc: host                   # necessário para o Fast DDS entre contentores com rede host
+  stop_signal: SIGINT         # Ctrl+C "limpo" para os nós e para o ros2 bag
+  environment: &env
+    ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+    RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+    CAM_X: ${CAM_X:--0.50}    # pose da câmara no base_link (URDF), medir no carro
+    CAM_Y: ${CAM_Y:-0.00}
+    CAM_Z: ${CAM_Z:-1.10}
+    CAM_ROLL: ${CAM_ROLL:-0.0}
+    CAM_PITCH: ${CAM_PITCH:-0.0}
+    CAM_YAW: ${CAM_YAW:-3.14159}
+  volumes:
+    - ./data:/data            # na aquisição real, aqui monta-se o SSD externo
+
+services:
+  # ----------------------------------------------------------------- fontes de dados
+  camera:                     # o driver real: Orbbec Astra Pro (cor, usb_cam) + URDF da câmara
+    <<: *ros
+    profiles: [sensor]
+    privileged: true          # acesso a /dev/video*
+    volumes:
+      - ./data:/data
+      - /dev:/dev
+    command: ros2 launch va_g06 camera_tras.launch.py
+
+  simulador:                  # câmara simulada (sem carro nem bag): vídeo em ./data ou estrada sintética
+    <<: *ros
+    profiles: [simulado]
+    command: >
+      ros2 launch va_g06 simulado.launch.py
+      video:=${VIDEO_SIM:-} metade:=${METADE_SIM:-}
+
+  reprodutor:                 # reproduz um bag de ./data (só os tópicos em TOPICOS, ver .env)
+    <<: *ros
+    profiles: [reproduzir]
+    command: >
+      ros2 bag play /data/${BAG:-indicar_BAG} --loop
+      --topics ${TOPICOS:-/atlascar2/camera_tras/image_raw/compressed /tf /tf_static}
+
+  # ----------------------------------------------------------------- processamento
+  percecao:                   # o nó do grupo: imagem -> deteções, avisos, grelha_local (+ reação)
+    <<: *ros
+    command: >
+      ros2 launch va_g06 percecao.launch.py namespace:=/${GRUPO:-g06}
+      modelo:=${MODELO:-modelos/yolo11n.pt} imgsz:=${IMGSZ:-640}
+
+  planeador:                  # comum a todos: grelha_local -> caminho_local + estado
+    <<: *ros
+    command: >
+      ros2 run va_planeamento local_astar --ros-args -r __ns:=/${GRUPO:-g06}
+      --params-file /ws/install/va_g06/share/va_g06/config/params.yaml
+
+  # ----------------------------------------------------------------- gravação e visualização
+  gravador:
+    <<: *ros
+    profiles: [gravar]
+    command: >
+      bash -c 'exec ros2 bag record -s mcap
+      -o /data/${GRUPO:-g06}_camtras_$$(date +%Y%m%d_%H%M%S)_${PERCURSO:-percurso}
+      /atlascar2/camera_tras/image_raw/compressed /atlascar2/camera_tras/camera_info
+      /tf /tf_static
+      /${GRUPO:-g06}/grelha_local /${GRUPO:-g06}/zona_proibida
+      /${GRUPO:-g06}/caminho_local /${GRUPO:-g06}/estado
+      /${GRUPO:-g06}/percecao/agentes /${GRUPO:-g06}/percecao/pavimento
+      /${GRUPO:-g06}/percecao/seguranca /${GRUPO:-g06}/reacao/acao'
+
+  foxglove:
+    <<: *ros
+    profiles: [foxglove]
+    command: ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765
+
+  rviz:
+    <<: *ros
+    profiles: [rviz]
+    environment:
+      <<: *env
+      DISPLAY: ${DISPLAY:-:0}
+      QT_X11_NO_MITSHM: "1"
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    command: rviz2 -d /ws/install/va_g06/share/va_g06/rviz/percecao.rviz
+
+  # ----------------------------------------------------------------- câmara RGB-D (opcional)
+  camera_rgbd:                # profundidade da Astra Pro: driver Orbbec (imagem própria)
+    profiles: [rgbd]
+    build:
+      context: .
+      dockerfile: Dockerfile.rgbd
+    image: va/${GRUPO:-g06}-rgbd:latest
+    network_mode: host
+    ipc: host
+    privileged: true
+    stop_signal: SIGINT
+    environment: *env
+    volumes:
+      - ./data:/data
+      - /dev:/dev
+    command: ros2 launch /ws/launch/camera_tras_rgbd.launch.py

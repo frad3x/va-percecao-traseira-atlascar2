@@ -3,7 +3,7 @@ pipeline.py — o processamento de UMA imagem, de ponta a ponta.
 
 É o núcleo partilhado por:
   - a aplicação off-line (main.py: vídeo / pasta / rosbag -> player, CSV, gráficos)
-  - o nó ROS 2 (ros2_aquisicao/src/va_percecao: subscreve a câmara, publica deteções)
+  - o nó ROS 2 (src/va_g06: subscreve a câmara, publica deteções e a grelha local)
 
     pipe = Pipeline(Config(...))
     res  = pipe.processar(frame_bgr, t)      # t em segundos (tempo da imagem)
@@ -27,9 +27,10 @@ class Config:
     linhas_params: dict = field(default_factory=dict)
     sinais_det: str = "modelos/sinais_det.pt"
     sinais_cls: str = "modelos/sinais_cls.pt"
+    sinais_pt: str = "modelos/sinais_pt_cls.pt"   # sinais PORTUGUESES (treino/sinais_pt.py)
     sinais_classico: bool = True     # se não houver modelos treinados
     ttc: bool = True
-    limiar_risco: float = 4.0        # TTC (s) abaixo do qual há risco
+    limiar_risco: float = 1.0        # TTC (s): perigo se TTC <= isto
     seguranca: bool = True
     seguranca_params: dict = field(default_factory=dict)
     dispositivo: str = None          # None = automático (GPU se houver); "cpu", "0", ...
@@ -50,8 +51,10 @@ class Pipeline:
         self.rec_sinais = None
         if cfg.sinais_det and os.path.isfile(cfg.sinais_det):
             from .sinais_treinados import ReconhecedorSinais
-            self.rec_sinais = ReconhecedorSinais(cfg.sinais_det, cfg.sinais_cls, imgsz=cfg.imgsz)
-            log("Sinais: modelos TREINADOS (deteção GTSDB + 43 tipos GTSRB)")
+            self.rec_sinais = ReconhecedorSinais(cfg.sinais_det, cfg.sinais_cls, cfg.sinais_pt,
+                                                 imgsz=cfg.imgsz)
+            log("Sinais: modelos TREINADOS (deteção GTSDB + 43 tipos GTSRB"
+                + (" + sinais portugueses)" if self.rec_sinais.pt is not None else ")"))
         elif cfg.sinais_classico:
             log("Sinais: YOLO + detetor clássico (cor + forma)")
 
@@ -108,7 +111,7 @@ class Pipeline:
                     npeoes=len(res["peoes"]["bb"]),
                     nsinais=len(res["sinais"]["bb"]),
                     ttc_min=ttc_min,
-                    risco=bool(ttc_min < self.cfg.limiar_risco),
+                    risco=bool(ttc_min <= self.cfg.limiar_risco),
                     dist_atras=seguidor.get("d"),
                     estado_dist=seg.get("estado_dist"),
                     mudar_esq=mud.get("esquerda", (None,))[0],

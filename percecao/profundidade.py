@@ -102,7 +102,7 @@ def bag_para_plys(fonte, saida_dir, passo=5, maximo=0):
     return grav
 
 
-# --- CLI:  python -m percecao.profundidade --fonte <bag> --saida_dir dados/nuvens ---
+# --- CLI:  python -m percecao.profundidade --fonte <bag> --saida_dir data/nuvens ---
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(description="Profundidade de um rosbag/MCAP -> nuvens .ply")
