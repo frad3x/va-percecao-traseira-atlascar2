@@ -8,6 +8,7 @@
 *.avi  filter=lfs diff=lfs merge=lfs -text
 *.pt   filter=lfs diff=lfs merge=lfs -text
 *.gif  binary
+*.pdf  binary
 *.png  binary
 *.jpg  binary
 va_datasets/** filter=lfs diff=lfs merge=lfs -text

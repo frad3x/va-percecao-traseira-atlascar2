@@ -7,6 +7,8 @@ avaliar a mudança de faixa.
 
 ![Demonstração](docs/img/demo.gif)
 
+📄 **Plano de projeto (PDF):** [`docs/plano_de_projeto_G6.pdf`](docs/plano_de_projeto_G6.pdf)
+
 | | |
 |---|---|
 | **Sensor** | Orbbec Astra Pro (RGB-D), USB; cor 1280×720 a 15 fps (`usb_cam`), profundidade pelo driver Orbbec |
