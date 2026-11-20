@@ -48,7 +48,7 @@ def test_mudanca_de_faixa_so_chega_ao_objetivo_com_a_faixa_livre():
     """Objetivo na faixa da direita, 20 m atrás. O A* comum procura a célula livre mais
     próxima do objetivo: com a faixa livre o caminho CHEGA lá; com um camião nessa faixa
     fica noutra célula (ou não há caminho = BLOQUEADO) -> mudança de faixa insegura."""
-    p = ParametrosPlaneador(raio_inflacao=1.0, desconhecido_livre=True,
+    p = ParametrosPlaneador(raio_inflacao=1.0, desconhecido_livre=False,
                             corredor_y_min=-5.25, corredor_y_max=5.25)   # como em params.yaml
     obj = (-20.0, -3.5)
     livre = planear(construir(_res(), POSE), (0.0, 0.0), obj, p)

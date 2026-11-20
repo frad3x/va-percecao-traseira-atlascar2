@@ -32,6 +32,8 @@ PARAMS = dict(
     alcance_livre=30.0,        # m: até onde o chão visível conta como livre
     n_raios=120,               # direções do contorno da zona visível
     linhas_continuas=True,     # marcar as linhas contínuas como ocupadas
+    margem_carro=2.0,          # m: meia largura livre à volta do próprio carro
+    zona_proxima=3.0,          # m atrás da câmara tratados como vistos (ver construir)
 )
 
 
@@ -96,6 +98,14 @@ def construir(res, pose_camara=(-0.5, 0.0, math.pi), par=None):
     # raio a raio, e sem falhas entre raios ao longe)
     xe, ye = para_base(alc * np.cos(ang), alc * np.sin(ang))
     g.marcar_poligono([(tx, ty)] + list(zip(xe, ye)), valor=LIVRE)
+    # o próprio carro e os primeiros metros atrás dele (onde a câmara ainda não vê o chão, mas
+    # vê um veículo — aparece cortado no fundo da imagem e é marcado a seguir): livre, com a
+    # largura do carro + a margem de inflação do planeador. É de onde o caminho parte; sem isto,
+    # com o desconhecido bloqueado, a inflação fechava o "bico" estreito junto à câmara.
+    m = p["margem_carro"]
+    x0, x1 = para_base(p["zona_proxima"], 0.0)[0], 2.0      # até 2 m à frente: a carroçaria
+    g.marcar_poligono([(min(x0, x1), -m), (max(x0, x1), -m), (max(x0, x1), m), (min(x0, x1), m)],
+                      valor=LIVRE)
 
     # --- OCUPADO: caixas dos agentes no chão ---
     for d, lat, comp, larg in caixas:

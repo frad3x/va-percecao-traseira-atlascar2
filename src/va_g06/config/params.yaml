@@ -62,7 +62,7 @@
     objetivo_y: 3.5                # ...na faixa da ESQUERDA (-3.5 = faixa da direita)
     raio_inflacao: 1.0             # meia largura do ATLASCAR2 (~0,75 m) + margem
     peso_heuristica: 1.0
-    desconhecido_livre: true
+    desconhecido_livre: false      # o que a câmara não vê (atrás de um carro) NÃO conta como livre
     # corredor = a estrada: a nossa faixa e as duas ao lado (3 x 3,5 m). Sem isto o A*
     # contorna os carros pelo passeio/estacionamento e diria "mudança possível" (fig. 2b da aula)
     corredor_y_min: -5.25

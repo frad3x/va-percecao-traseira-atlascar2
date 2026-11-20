@@ -58,7 +58,7 @@ câmara, salta imagens em vez de acumular atraso.
 | Valor | O que é |
 |---|---|
 | **100 ocupado** | veículos, duas rodas e peões como caixas no chão (distância e posição lateral pelo modelo monocular de chão plano); linhas **contínuas** (não se podem atravessar) |
-| **0 livre** | o chão visível: raios desde a câmara, dentro do campo de visão (66°), até ao primeiro obstáculo ou 30 m |
+| **0 livre** | o chão visível: dentro do campo de visão (66°), desde a câmara até ao primeiro obstáculo ou 30 m; e o próprio carro + 3 m atrás dele |
 | **−1 desconhecido** | o que está escondido atrás de um veículo, fora do campo de visão, longe demais, ou à frente do carro |
 
 A pose da câmara vem do `/tf_static` (URDF); sem TF (p. ex. um bag sem `/tf_static`) usa-se a
@@ -68,7 +68,10 @@ pose por omissão do parâmetro `pose_camara_omissao`.
 **faixa ao lado, 20 m atrás** (`objetivo_x: -20`, `objetivo_y: 3.5` = faixa da esquerda;
 −3,5 = direita, em `src/va_g06/config/params.yaml`) e o corredor é a estrada (a nossa faixa e as
 duas ao lado, |y| ≤ 5,25 m — sem isto o A* contornaria os carros pelo passeio, como na figura 2b
-da aula). O A* comum procura a célula livre mais
+da aula). O que a câmara não vê (escondido atrás de um carro, fora do campo de visão) **não conta
+como livre** (`desconhecido_livre: false`); só o próprio carro e os primeiros 3 m atrás dele (onde
+um veículo apareceria cortado no fundo da imagem) ficam livres, para o caminho poder partir. O A*
+comum procura a célula livre mais
 próxima do objetivo: se o caminho **chega** à faixa pedida, a mudança é possível; se fica
 noutra célula (veículo nessa faixa) ou o estado é `BLOQUEADO`, a mudança é insegura. (O estado
 `DESVIO` aparece mesmo com a faixa livre, porque o caminho até um objetivo na diagonal é em
@@ -148,7 +151,6 @@ Figuras geradas com `python tools/figura_grelha.py data/passeio_20261120_091854/
 | Veículos seguidos que se **afastam** da câmara | 96% (1 211 de 1 263) — coerente com uma câmara traseira em marcha |
 | Veículo atrás na nossa faixa | 16% do tempo (8% a distância segura, 8% perto); perigo (TTC ≤ 1 s) em 3% das imagens; TTC mínimo 0,3 s |
 | Mudança de faixa possível (perceção) | esquerda 68%, direita 80% do tempo |
-| Grelha + A* (objetivo 20 m atrás na faixa ao lado) | o caminho chega à faixa: esquerda 94%, direita 99% das amostras |
 | Sinais reconhecidos (exemplos) | STOP, lomba (A2a), cedência (B1), trânsito proibido (C2), paragem e estacionamento proibidos (C16), limites 30/50/60, sentido proibido, rotunda, pista de velocípedes |
 
 ![Deteções por imagem](docs/img/volta_deteccoes.png)

@@ -63,7 +63,8 @@ def main():
         if k in alvo:
             g = construir(res)
             r = planear(g, (0.0, 0.0), tuple(a.objetivo),        # os mesmos de params.yaml
-                        ParametrosPlaneador(raio_inflacao=1.0, corredor_y_min=-5.25, corredor_y_max=5.25))
+                        ParametrosPlaneador(raio_inflacao=1.0, desconhecido_livre=False,
+                                            corredor_y_min=-5.25, corredor_y_max=5.25))
             chega = bool(r.caminho_xy) and math.dist(r.caminho_xy[-1], a.objetivo) < 0.5
             paineis.append((k, desenho.desenhar(fr, res)[:, :, ::-1], g, r, chega))
         k += 1
