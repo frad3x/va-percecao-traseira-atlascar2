@@ -21,11 +21,11 @@ import os
 
 # ========================= CONFIG (edita e dá Run) =========================
 # >>> METE AQUI o caminho do que queres analisar (entre as aspas, depois do r):
-FONTE = r"dados\bags\vídeos teste\videoplayback.mp4"   # relativo à pasta do projeto
+FONTE = r"data\videos_teste\videoplayback.mp4"   # relativo à pasta do projeto
 #   -> vídeo .avi/.mp4, pasta de imagens, OU pasta/.mcap de um rosbag (converte sozinho)
 #   Exemplos (Windows):
 #     FONTE = r"C:\Users\tomas\Desktop\o_meu_video.mp4"
-#     FONTE = r"dados\bags\g02_camtras_20261104_160818_percurso1"   # pasta do bag
+#     FONTE = r"data\g02_camtras_20261104_160818_percurso1"   # pasta do bag
 FONTE = os.environ.get("VA_FONTE", FONTE)   # (permite também definir por variável de ambiente)
 MODELO = "modelos/yolo11m.pt"  # modelo YOLO (descarregado na 1.ª vez). 'm' = bom equilíbrio
                            #   precisão/velocidade com GPU. Sem GPU: "modelos/yolo11n.pt" + IMGSZ=640.
@@ -43,8 +43,9 @@ SINAIS_CLASSICO = True     # YOLO (stop) + detetor clássico (restantes sinais P
 # detetor clássico e reconhecem 43 tipos (limite 50, cedência, rotunda, obras...).
 SINAIS_DET = "modelos/sinais_det.pt"
 SINAIS_CLS = "modelos/sinais_cls.pt"
+SINAIS_PT = "modelos/sinais_pt_cls.pt"   # sinais PORTUGUESES (treino/sinais_pt.py); "" desliga
 ANALISAR_APROX = True      # TTC dos veículos atrás
-LIMIAR_RISCO = 4.0         # TTC (s) abaixo do qual se assinala RISCO
+LIMIAR_RISCO = 1.0         # TTC (s): PERIGO só com 1 s ou menos até à colisão
 SEGURANCA = True           # distâncias + avisos (ver percecao/seguranca.py)
 SEGURANCA_PARAMS = {}      # ex.: {"vel_ego_kmh": 50} -> regra dos 2 s; {"traseira": False}
                            #      para vídeos de câmara FRONTAL (lados não espelhados);
@@ -67,7 +68,7 @@ def main():
     executar(FONTE,
              Config(modelo=MODELO, imgsz=IMGSZ, conf=CONF, usar_track=USAR_TRACK,
                     linhas=LINHAS, linhas_params=LINHAS_PARAMS,
-                    sinais_det=SINAIS_DET, sinais_cls=SINAIS_CLS,
+                    sinais_det=SINAIS_DET, sinais_cls=SINAIS_CLS, sinais_pt=SINAIS_PT,
                     sinais_classico=SINAIS_CLASSICO, ttc=ANALISAR_APROX,
                     limiar_risco=LIMIAR_RISCO, seguranca=SEGURANCA,
                     seguranca_params=SEGURANCA_PARAMS),

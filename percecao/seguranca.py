@@ -31,7 +31,8 @@ PARAMS = dict(
     tempo_seguranca=2.0,    # s (regra dos 2 segundos)
     dist_peao=8.0,          # m: peão atrás, no corredor do carro
     dist_angulo_morto=12.0, # m: veículo na faixa ao lado mais perto do que isto = ocupada
-    ttc_risco=4.0,          # s
+    ttc_risco=1.0,          # s: PERIGO (risco de colisão) só com TTC <= isto
+    ttc_mudanca=4.0,        # s: veículo na faixa ao lado com TTC <= isto -> mudar é inseguro
     dist_max=80.0,          # m: além disto a distância monocular não vale nada
     janela=12,              # amostras para estimar a velocidade de aproximação
     traseira=True,          # câmara TRASEIRA (imagem espelhada). False p/ vídeos de câmara frontal
@@ -157,7 +158,7 @@ class AnaliseSeguranca:
                 v_seg = max(0.0, p["vel_ego_kmh"] / 3.6 + (seg["vrel"] or 0.0))
                 dist_min = max(3.0, p["tempo_seguranca"] * v_seg)
             ttc = seg["ttc"]
-            if ttc is not None and np.isfinite(ttc) and ttc < p["ttc_risco"]:
+            if ttc is not None and np.isfinite(ttc) and ttc <= p["ttc_risco"]:
                 estado = "perigo"
                 alertas.append(("perigo", f"RISCO DE COLISAO TRASEIRA  TTC {ttc:.1f} s"))
             elif seg["d"] < dist_min or seg["cortada"]:
@@ -172,7 +173,7 @@ class AnaliseSeguranca:
             lado = self.lado_carro(lado_img)
             ocup = [o for o in veics if o["faixa"] == lado_img and (
                 o["d"] < p["dist_angulo_morto"] or o["cortada"] or
-                (o["ttc"] is not None and np.isfinite(o["ttc"]) and o["ttc"] < 2 * p["ttc_risco"]))]
+                (o["ttc"] is not None and np.isfinite(o["ttc"]) and o["ttc"] <= p["ttc_mudanca"]))]
             if ocup:
                 o = min(ocup, key=lambda o: o["d"])
                 mudanca[lado] = ("ocupado", f"veiculo a {o['d']:.0f} m")

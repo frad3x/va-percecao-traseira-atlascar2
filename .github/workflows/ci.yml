@@ -1,0 +1,21 @@
+# Verificação automática a cada push: a imagem constrói-se e os testes passam.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  docker:
+    runs-on: ubuntu-24.04
+    env:
+      # PyTorch só CPU no CI: a imagem fica muito mais pequena (o código é o mesmo)
+      TORCH_INDEX: https://download.pytorch.org/whl/cpu
+    steps:
+      - uses: actions/checkout@v4
+      - name: Modelos treinados (Git LFS; só a pasta modelos/, não os datasets)
+        run: git lfs pull --include="modelos/*"
+      - name: Construir a imagem
+        run: docker compose build
+      - name: Testes (pytest dentro do contentor)
+        run: docker compose run --rm planeador python3 -m pytest -q /ws/src

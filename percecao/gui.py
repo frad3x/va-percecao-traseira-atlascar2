@@ -206,7 +206,7 @@ class ZonaFicheiro(QtWidgets.QFrame):
         self.bt_pasta.clicked.connect(self.escolher_pasta)
 
     def _inicio(self):
-        p = os.path.join(RAIZ, "dados", "bags")
+        p = os.path.join(RAIZ, "data")
         return p if os.path.isdir(p) else RAIZ
 
     def escolher_ficheiro(self):

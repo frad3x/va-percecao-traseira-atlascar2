@@ -1,0 +1,24 @@
+{
+  "name": "VA - grupo G6 (câmara traseira)",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+  "runArgs": [
+    "--network=host",
+    "--ipc=host"
+  ],
+  "containerEnv": {
+    "ROS_DOMAIN_ID": "42",
+    "VA_PROJETO": "/ws"
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/ws,type=bind",
+  "workspaceFolder": "/ws",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python"
+      ]
+    }
+  }
+}

@@ -7,7 +7,7 @@ Dá uma classe Fonte com:
   .ler(k)    -> devolve a k-ésima frame (acesso aleatório, para o player)
 
 Para um rosbag MCAP, as frames são exportadas UMA vez para um .avi em
-dados/cache/<nome do bag>.avi e a partir daí é tratado como vídeo — assim o player
+data/cache/<nome do bag>.avi e a partir daí é tratado como vídeo — assim o player
 pode recuar/saltar sem ROS. Se a cache já existir (e for mais recente que o bag),
 é reutilizada: abrir o mesmo bag uma 2.ª vez é imediato.
 
@@ -161,7 +161,7 @@ class Fonte:
         if mcap:                                   # rosbag -> exporta para .avi (cache)
             if avi_cache is None:
                 nome = os.path.splitext(os.path.basename(mcap))[0]
-                avi_cache = os.path.join("dados", "cache", nome + ".avi")
+                avi_cache = os.path.join("data", "cache", nome + ".avi")
             if (os.path.isfile(avi_cache) and os.path.getsize(avi_cache) > 0
                     and os.path.getmtime(avi_cache) >= os.path.getmtime(mcap)):
                 print(f"[fontes] a usar a cache {avi_cache}")

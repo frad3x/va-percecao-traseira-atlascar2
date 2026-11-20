@@ -5,7 +5,7 @@ Aplicação de processamento off-line, pela linha de comandos.
 
 <fonte> = vídeo (.mp4/.avi), pasta de imagens ou rosbag MCAP (pasta ou .mcap).
 Exemplos:
-  python -m percecao dados/bags/g02_camtras_20261104_160818_percurso1
+  python -m percecao data/g02_camtras_20261104_160818_percurso1
   python -m percecao video.mp4 --modelo modelos/yolo11n.pt --imgsz 640 --max-frames 300
   python -m percecao video.mp4 --sem-player --gravar-video --vel-kmh 50
 """
@@ -24,7 +24,7 @@ def escolher_fonte():
     """Janela para escolher a gravação (ficheiro .mcap/vídeo). Para um rosbag, escolhe o
     ficheiro .mcap dentro da pasta. Cancelar na 1.ª janela abre a escolha de PASTA
     (pasta de imagens ou pasta do bag)."""
-    inicio = os.path.join(RAIZ, "dados", "bags")
+    inicio = os.path.join(RAIZ, "data")
     inicio = inicio if os.path.isdir(inicio) else RAIZ
     try:
         from PySide6 import QtWidgets
@@ -58,9 +58,12 @@ def main(argv=None):
     ap.add_argument("--dispositivo", default=None, help="'cpu', '0' (GPU 0)... omissão: automático")
     ap.add_argument("--sinais-det", default="modelos/sinais_det.pt")
     ap.add_argument("--sinais-cls", default="modelos/sinais_cls.pt")
+    ap.add_argument("--sinais-pt", default="modelos/sinais_pt_cls.pt",
+                    help="classificador dos sinais portugueses ('' desliga)")
     ap.add_argument("--sem-linhas", action="store_true")
     ap.add_argument("--linhas-params", default="{}", help='JSON, ex. \'{"v_base": 0.82}\'')
-    ap.add_argument("--limiar-risco", type=float, default=4.0, help="TTC de risco (s)")
+    ap.add_argument("--limiar-risco", type=float, default=1.0,
+                    help="TTC (s) a partir do qual há PERIGO (omissão: 1 s)")
     ap.add_argument("--vel-kmh", type=float, default=None,
                     help="velocidade do carro -> distância de segurança pela regra dos 2 s")
     ap.add_argument("--frontal", action="store_true",
@@ -80,14 +83,14 @@ def main(argv=None):
         print("Nenhuma gravação escolhida — nada a fazer.")
         return
     fonte = os.path.abspath(fonte)
-    os.chdir(RAIZ)        # modelos/, dados/ e os CSV ficam sempre na pasta do projeto
+    os.chdir(RAIZ)        # modelos/, data/ e resultados/ ficam sempre na pasta do projeto
 
     seg = {"traseira": not a.frontal}
     if a.vel_kmh is not None:
         seg["vel_ego_kmh"] = a.vel_kmh
     cfg = Config(modelo=a.modelo, imgsz=a.imgsz, conf=a.conf, dispositivo=a.dispositivo,
                  linhas=not a.sem_linhas, linhas_params=json.loads(a.linhas_params),
-                 sinais_det=a.sinais_det, sinais_cls=a.sinais_cls,
+                 sinais_det=a.sinais_det, sinais_cls=a.sinais_cls, sinais_pt=a.sinais_pt,
                  limiar_risco=a.limiar_risco, seguranca_params=seg)
     executar(fonte, cfg, mostrar=not a.sem_player, graficos=not a.sem_graficos,
              gravar_video=a.gravar_video, fich_video=a.video_saida, max_frames=a.max_frames,

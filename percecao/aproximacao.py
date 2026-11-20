@@ -12,7 +12,7 @@ import numpy as np
 
 
 class Aproximacao:
-    def __init__(self, janela=15, min_amostras=5, cres_min=0.3, limiar_risco=4.0):
+    def __init__(self, janela=15, min_amostras=5, cres_min=0.3, limiar_risco=1.0):
         self.janela = janela
         self.min_amostras = min_amostras
         self.cres_min = cres_min

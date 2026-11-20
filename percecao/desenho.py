@@ -56,7 +56,7 @@ NOME_PT = {"car": "carro", "truck": "camiao", "bus": "autocarro", "bicycle": "bi
 FONTE = cv2.FONT_HERSHEY_SIMPLEX
 
 
-def desenhar(frame, res, ttc_risco=4.0, lim_veic=0.5, vista_cima=True, estacionamento=False):
+def desenhar(frame, res, ttc_risco=1.0, lim_veic=0.5, vista_cima=True, estacionamento=False):
     out = frame.copy()
     H, W = out.shape[:2]
     e = _escala(H)
@@ -215,7 +215,7 @@ def _objetos(img, res, seg, ttc_risco, e):
             if d is not None:
                 partes.append(("<" if _get(gr, "cortada", i, False) else "") + f"{d:.0f} m")
             ttc = _get(gr, "ttc", i)
-            risco = ttc is not None and np.isfinite(ttc) and ttc < ttc_risco
+            risco = ttc is not None and np.isfinite(ttc) and ttc <= ttc_risco
             if ttc is not None and np.isfinite(ttc):
                 partes.append(f"TTC {ttc:.1f}s")
             if grupo == "sinais" and _get(gr, "sc", i) is not None:

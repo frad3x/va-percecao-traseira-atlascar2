@@ -151,7 +151,7 @@ def _resumo(stats):
               f"{riscos} ({100 * riscos / n:.0f}%)")
 
 
-def _graficos(stats, mostrar, LIMIAR_RISCO=4.0, pasta=PASTA_RESULTADOS, bloquear=True):
+def _graficos(stats, mostrar, LIMIAR_RISCO=1.0, pasta=PASTA_RESULTADOS, bloquear=True):
     """Gráficos (PNG na pasta dada). bloquear=False: dentro de uma app Qt já a correr."""
     if not stats:
         return

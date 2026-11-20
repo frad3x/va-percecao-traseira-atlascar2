@@ -2,7 +2,7 @@
 Pacote de perceção (Tema 2 — câmara traseira do ATLASCAR2), versão Python.
 
 Núcleo partilhado pela aplicação off-line (../main.py, python -m percecao) e pelo
-nó ROS 2 (ros2_aquisicao/src/va_percecao). Módulos:
+nó ROS 2 (src/va_g06). Módulos:
   pipeline      — processa UMA imagem de ponta a ponta (classe Pipeline)
   app           — a aplicação off-line (fonte -> player, CSV, gráficos)
   gui           — a aplicação de janela (python -m percecao.gui)
