@@ -23,6 +23,7 @@ class Config:
     imgsz: int = 1280
     conf: float = 0.25
     usar_track: bool = True          # ByteTrack (IDs estáveis) — preciso para o TTC
+    estabilizar: bool = True         # caixas suavizadas/confirmadas no tempo (estabilizar.py)
     linhas: bool = True
     linhas_params: dict = field(default_factory=dict)
     sinais_det: str = "modelos/sinais_det.pt"
@@ -62,6 +63,8 @@ class Pipeline:
         self.seguranca = AnaliseSeguranca(dict(cfg.seguranca_params, ttc_risco=cfg.limiar_risco),
                                           cfg.linhas_params) if cfg.seguranca else None
         self.memoria_sinais = desenho.MemoriaSinais()
+        from .estabilizar import Estabilizador
+        self.estab = Estabilizador() if cfg.estabilizar else None
 
     # ------------------------------------------------------------------
     def velocidade(self, v_ms):
@@ -77,6 +80,8 @@ class Pipeline:
             res["sinais"] = msinais.combinar(res["sinais"], self.rec_sinais.detetar(frame))
         elif cfg.sinais_classico:
             res["sinais"] = msinais.combinar(res["sinais"], msinais.detetar(frame))
+        if self.estab is not None:
+            self.estab.atualizar(res)
         if self.det_linhas is not None:
             # as caixas dos agentes não são linhas
             res["linhas"] = self.det_linhas.detetar(
@@ -85,7 +90,7 @@ class Pipeline:
         res["ttc_min"] = float("inf")
         if self.aprox is not None:
             for g in ("veic", "duas_rodas"):
-                res[g]["ttc"] = self.aprox.atualizar(res[g], t, g)
+                res[g]["ttc"] = self.aprox.atualizar(res[g], t, g, frame.shape)
             res["ttc_min"] = self.aprox.ttc_minimo(res["veic"]["ttc"] + res["duas_rodas"]["ttc"])
         if self.seguranca is not None:
             self.seguranca.analisar(frame.shape, res, t)

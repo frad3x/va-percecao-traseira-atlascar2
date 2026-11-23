@@ -198,6 +198,28 @@ medida. Com o carro em calçada (textura do chão na imagem > 15) não se estima
 A queda de "imagens com linhas" são as bermas e passadeiras que deixaram de contar: os últimos
 3 minutos são ruas quase sem tinta.
 
+**Estabilidade no tempo (o que se vê no vídeo).** Para o desenho não "saltar":
+- caixas suavizadas por objeto seguido (centro e tamanho), um objeto novo só aparece depois
+  de confirmado e um que falha até 3 imagens fica no sítio a esbater (`percecao/estabilizar.py`);
+  números de exibição pequenos em vez dos IDs do ByteTrack;
+- tipo da linha com histerese (só troca quando o outro tipo tem 70% das últimas 15 imagens);
+  linhas e divisória, uma vez confirmadas, esbatem em vez de piscar; extensão da linha suavizada;
+- distância por objeto suavizada (mais ao longe) e, ao longe (≥ 30 m), escrita de 5 em 5 m;
+  velocidade de aproximação pelo crescimento da caixa (d/TTC) ou, só até 25 m, pela variação
+  da distância em ~2 s; o TTC ignora caixas cortadas pela borda da imagem;
+- linhas desenhadas como fitas com a largura em perspetiva e contorno discreto; rótulos sem
+  sobreposição (prioridade aos mais perto) e caixas pequenas ao longe sem rótulo.
+
+Medido com o pipeline completo (2 700 imagens em cada troço; antes → depois):
+
+| | 3 primeiros min | 3 últimos min |
+|---|---|---|
+| Tremor das caixas entre imagens (mediana, fração da altura) | 0,075 → 0,038 | 0,059 → 0,035 |
+| Caixas que aparecem por minuto (piscar) | 328 → 155 | 399 → 165 |
+| Trocas de tipo da linha por minuto | 7,7 → 3,3 | 1,0 → 0,7 |
+| Linha a aparecer/desaparecer por minuto | 11,7 → 5,7 | 5,3 → 1,7 |
+| Salto da divisória a 12 m (p90) | 0,25 → 0,14 m | 0,21 → 0,11 m |
+
 Também se experimentou **compensar o tremor** (correlação de fase acima do horizonte) e um
 **filtro de Kalman** por linha: nos 3 últimos minutos ambos pioraram (alinhamento 0,65 e
 0,46–0,52 contra 0,71 da média exponencial no mesmo ensaio; p90 da variação 0,29–0,63 m com
@@ -252,7 +274,7 @@ gráficos e, se pedido, o vídeo anotado. Player: **ESPAÇO** play/pausa · **A/
 | `src/va_planeamento/` | **Comum**: grelha local (`grid.py`) + A* (`astar.py`, `local_astar`) — copiado sem alterações |
 | `src/va_g06/` | **Do grupo**: nós `percecao` (com a grelha), `reacao`, `camara_simulada`; launch; URDF da câmara; `config/params.yaml`, `usb_cam.yaml` |
 | `src/va_percecao_msgs/` | Mensagens do grupo (`Agentes`, `Pavimento`, `EstadoSeguranca`, `Acao`, …) |
-| `percecao/` | Núcleo Python (usado pelo nó e pela aplicação off-line): `pipeline`, `detecao`, `linhas`, `sinais*`, `aproximacao`, `seguranca`, `desenho`, `fontes`, `app`, `gui`, `player`, `percecao3d`, … |
+| `percecao/` | Núcleo Python (usado pelo nó e pela aplicação off-line): `pipeline`, `detecao`, `estabilizar`, `linhas`, `sinais*`, `aproximacao`, `seguranca`, `desenho`, `fontes`, `app`, `gui`, `player`, `percecao3d`, … |
 | `main.py` | Aplicação off-line — basta dar Run |
 | `modelos/` | Pesos: sinais (deteção GTSDB, 43 tipos GTSRB, 159 sinais PT) + YOLO base |
 | `treino/` | Treino dos modelos de sinais (`treinar_sinais.py`, `sinais_pt.py`) |

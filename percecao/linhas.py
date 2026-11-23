@@ -214,7 +214,10 @@ class DetetorLinhas:
         self._pendente = {"esq": [], "dir": []}      # posições "suspeitas" seguidas
         n = self.p["confirmar_n"]
         self._vistos = {"esq": deque(maxlen=n), "dir": deque(maxlen=n)}
-        self._tipo = {"esq": deque(maxlen=9), "dir": deque(maxlen=9)}
+        self._tipo = {"esq": deque(maxlen=15), "dir": deque(maxlen=15)}
+        self._tipo_atual = {"esq": None, "dir": None}
+        self._mostrada = {"esq": False, "dir": False}   # histerese do aparecer/desaparecer
+        self._rn_top = {"esq": None, "dir": None}    # extensão desenhada (suavizada à parte)
         self._clahe = cv2.createCLAHE(clipLimit=self.p["clahe"], tileGridSize=(4, 4))
         self._marcas = None
         self._hist_marc = {}
@@ -395,6 +398,20 @@ class DetetorLinhas:
                 out.append(_troco_para_img(coef, float(rn.min()), float(rn.max()), g))
         return out
 
+    def _tipo_estavel(self, lado):
+        """Tipo com histerese: só troca quando o outro tipo tem >= 70% das últimas 15
+        imagens (uma tracejada com traços longos parece contínua numa ou noutra imagem)."""
+        tipos = list(self._tipo[lado]) or ["continua"]
+        atual = self._tipo_atual[lado]
+        if atual is None:
+            atual = max(set(tipos), key=tipos.count)
+        else:
+            outro = "continua" if atual == "tracejada" else "tracejada"
+            if len(tipos) >= 6 and tipos.count(outro) >= 0.7 * len(tipos):
+                atual = outro
+        self._tipo_atual[lado] = atual
+        return atual
+
     def _divisoria(self, frame, excluir, g, precisa):
         """Sem linhas pintadas: divisória ESTIMADA a meio da estrada.
         Numa vista de cima LARGA (±estrada_lado m) segmenta-se o asfalto pela cor e pela
@@ -405,18 +422,24 @@ class DetetorLinhas:
         p = self.p
         st = getattr(self, "_div", None)
         if st is None:
-            st = self._div = dict(y=None, vistos=deque(maxlen=6), falta=0)
+            st = self._div = dict(y=None, vistos=deque(maxlen=6), falta=0, ativa=False)
         y_med = _bermas(frame, excluir, g, p)      # sempre (é barato): pronta quando faltarem linhas
         xs = _XS_DIV(g, p)
         st["vistos"].append(y_med is not None)
         if y_med is not None:
-            st["y"] = y_med if st["y"] is None else 0.3 * y_med + 0.7 * st["y"]
+            st["y"] = y_med if st["y"] is None else 0.15 * y_med + 0.85 * st["y"]
             st["falta"] = 0
         else:
             st["falta"] += 1
             if st["falta"] > 8:
                 st["y"] = None
-        if not precisa or st["y"] is None or sum(st["vistos"]) < 3:
+        # histerese: aparece depois de vista em >= 3 das últimas 6 imagens e, a partir daí,
+        # mantém-se (a esbater) enquanto houver estimativa — não liga e desliga
+        if st["y"] is None:
+            st["ativa"] = False
+        elif sum(st["vistos"]) >= 3:
+            st["ativa"] = True
+        if not precisa or not st["ativa"]:
             return None
         # curva na imagem + coeficientes no referencial da vista de cima normal (para a
         # lateral_da_linha e para a faixa de cada agente)
@@ -428,7 +451,8 @@ class DetetorLinhas:
         if len(pts) < 2:
             return None
         return dict(pts=pts, tipo="estimada", coef=[float(v) for v in coef],
-                    rn_top=float(max(rn.min(), 0.0)), estimada=True)
+                    rn_top=float(max(rn.min(), 0.0)), estimada=True,
+                    confianca=float(1.0 - st["falta"] / 9.0))
 
     # ------------------------------------------------------------------
     def _horizonte(self, frame, excluir, H):
@@ -534,10 +558,21 @@ class DetetorLinhas:
                 if self._falta[lado] > p["memoria"]:
                     self._estado[lado] = None
                     self._tipo[lado].clear()
+                    self._tipo_atual[lado] = None
+                    self._rn_top[lado] = None
+                    self._mostrada[lado] = False
             e = self._estado[lado]
+            # aparece depois de confirmada (k de n imagens); a partir daí fica (a esbater)
+            # enquanto houver estado, em vez de piscar quando falha umas imagens
             if e is not None and sum(self._vistos[lado]) >= p["confirmar_k"]:
-                tipos = list(self._tipo[lado]) or ["continua"]
-                tipo = max(set(tipos), key=tipos.count)      # voto: não troca a cada frame
+                self._mostrada[lado] = True
+            if e is not None and self._mostrada[lado]:
+                tipo = self._tipo_estavel(lado)
+                # extensão: cresce depressa (vê-se mais longe) e encolhe devagar
+                rt = self._rn_top[lado]
+                rt = e[3] if rt is None else (0.5 * e[3] + 0.5 * rt if e[3] < rt else 0.1 * e[3] + 0.9 * rt)
+                self._rn_top[lado] = rt
+                e = np.array(list(e[:3]) + [rt])
                 pts = curva_para_img(e[:3], e[3] - 0.05, g)
                 if len(pts) >= 2:
                     out[lado] = dict(pts=pts, tipo=tipo, coef=[float(v) for v in e[:3]],

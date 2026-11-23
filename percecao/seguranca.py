@@ -34,7 +34,9 @@ PARAMS = dict(
     ttc_risco=1.0,          # s: PERIGO (risco de colisão) só com TTC <= isto
     ttc_mudanca=4.0,        # s: veículo na faixa ao lado com TTC <= isto -> mudar é inseguro
     dist_max=80.0,          # m: além disto a distância monocular não vale nada
-    janela=12,              # amostras para estimar a velocidade de aproximação
+    janela=30,              # amostras (~2 s) para estimar a velocidade de aproximação
+    dist_vel_max=25.0,      # m: além disto a distância monocular é ruidosa demais para
+                            #   derivar uma velocidade (a 40 m, ±3 m em 0,8 s = ±13 km/h)
     traseira=True,          # câmara TRASEIRA (imagem espelhada). False p/ vídeos de câmara frontal
 )
 
@@ -50,6 +52,7 @@ class AnaliseSeguranca:
         if linhas_params:
             self.lp.update(linhas_params)
         self._hist = {}           # (grupo, id) -> (ts, ds)
+        self._d = {}              # (grupo, id) -> (distância suavizada, t)
         self._larg = None         # largura da faixa medida (EMA), m
 
     # ------------------------------------------------------------------
@@ -93,9 +96,12 @@ class AnaliseSeguranca:
                 faixa = self._faixa(X, Y, esq, dir_, g)
                 oid = gr["id"][i] if i < len(gr.get("id", [])) else -1
                 vrel = self._vel(grupo, oid, t, X)
+                X = self._suaviza_d(grupo, oid, t, X)
+                ttc = (gr.get("ttc") or [None] * n)[i] if grupo != "peoes" else None
+                if ttc is not None and np.isfinite(ttc) and ttc > 0:
+                    vrel = X / ttc          # pelo crescimento da caixa: não depende da escala
                 gr["dist"][i], gr["lat"][i], gr["faixa"][i] = X, Y, faixa
                 gr["vrel"][i], gr["cortada"][i] = vrel, cortada
-                ttc = (gr.get("ttc") or [None] * n)[i] if grupo != "peoes" else None
                 objs.append(dict(grupo=grupo, i=i, d=X, lat=Y, faixa=faixa, vrel=vrel,
                                  ttc=ttc, cortada=cortada, id=oid))
         self._limpar(t)
@@ -142,13 +148,27 @@ class AnaliseSeguranca:
         ts, ds = self._hist.setdefault((grupo, oid), ([], []))
         ts.append(t); ds.append(d)
         del ts[:-self.p["janela"]], ds[:-self.p["janela"]]
-        if len(ts) < 5 or ts[-1] - ts[0] <= 0:
+        if len(ts) < 15 or ts[-1] - ts[0] <= 0 or d > self.p["dist_vel_max"]:
             return None
         return float(-np.polyfit(np.array(ts) - ts[0], np.array(ds), 1)[0])
+
+    def _suaviza_d(self, grupo, oid, t, d):
+        """Distância suavizada por objeto: a base da caixa treme alguns píxeis, o que ao
+        longe são metros. Mais suavização longe (onde o ruído é maior) do que perto."""
+        if oid < 0:
+            return d
+        ant = self._d.get((grupo, oid))
+        if ant is not None and t - ant[1] < 0.5 and abs(d - ant[0]) < 0.4 * max(ant[0], 5.0):
+            a = 0.5 if d < 10 else 0.25
+            d = a * d + (1 - a) * ant[0]
+        self._d[(grupo, oid)] = (d, t)
+        return d
 
     def _limpar(self, t):
         for k in [k for k, (ts, _) in self._hist.items() if t - ts[-1] > 5.0]:
             del self._hist[k]
+        for k in [k for k, (_, tk) in self._d.items() if t - tk > 5.0]:
+            del self._d[k]
 
     # ------------------------------------------------------------------
     def _resumo(self, objs, esq, dir_):

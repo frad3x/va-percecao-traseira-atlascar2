@@ -27,8 +27,10 @@ class Aproximacao:
         self._hist = {}   # id -> (lista_t, lista_s)
         self._seguidos = {}   # id -> nº de atualizações seguidas a aproximar-se
 
-    def atualizar(self, veic, t, grupo="veic"):
-        """veic: dict com 'bb' e 'id'. Devolve lista de TTC (s) alinhada às caixas."""
+    def atualizar(self, veic, t, grupo="veic", forma=None):
+        """veic: dict com 'bb' e 'id'. Devolve lista de TTC (s) alinhada às caixas.
+        forma = (H, W) da imagem: uma caixa CORTADA pela borda (carro a entrar ou a sair da
+        imagem) cresce sem se aproximar — não conta para o TTC."""
         bbs = veic.get("bb", [])
         ids = veic.get("id", [])
         ttc = [float("inf")] * len(bbs)
@@ -37,6 +39,14 @@ class Aproximacao:
             if oid < 0:                    # sem rastreio não há histórico fiável
                 continue
             oid = (grupo, oid)
+            if forma is not None:
+                H, W = forma[:2]
+                x, y, w, h = bb
+                m = 0.02 * W
+                if x <= m or x + w >= W - m or y + h >= H - 3:
+                    self._hist.pop(oid, None)
+                    self._seguidos.pop(oid, None)
+                    continue
             s = bb[3]                      # altura da caixa (px) = tamanho aparente
             ts, ss = self._hist.get(oid, ([], []))
             ts.append(t); ss.append(s)
