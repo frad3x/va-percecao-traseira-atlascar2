@@ -1,7 +1,7 @@
 """robot_description da câmara traseira, partilhado pelos launch (driver real e simulado)."""
 import os
 
-POSE_OMISSAO = (('x', 'CAM_X', '-0.50'), ('y', 'CAM_Y', '0.00'), ('z', 'CAM_Z', '1.10'),
+POSE_OMISSAO = (('x', 'CAM_X', '-0.50'), ('y', 'CAM_Y', '0.00'), ('z', 'CAM_Z', '1.75'),
                 ('roll', 'CAM_ROLL', '0.0'), ('pitch', 'CAM_PITCH', '0.0'),
                 ('yaw', 'CAM_YAW', '3.14159'))
 

@@ -7,17 +7,25 @@ sua caixa (looming). Calibração-independente: usa só a altura da caixa (px).
 
 TTC ≈ s / (ds/dt), estimado por regressão linear numa janela; só reporta quando
 o objeto está mesmo a crescer (a aproximar-se). Caso contrário devolve inf.
+
+Contra o ruído (carros parados, caixa a "respirar", câmara a tremer): exige um
+crescimento relativo mínimo (cres_rel_min por segundo) e que a aproximação se
+confirme em 'confirmar' atualizações seguidas.
 """
 import numpy as np
 
 
 class Aproximacao:
-    def __init__(self, janela=15, min_amostras=5, cres_min=0.3, limiar_risco=1.0):
+    def __init__(self, janela=15, min_amostras=5, cres_min=0.3, limiar_risco=1.0,
+                 cres_rel_min=0.05, confirmar=3):
         self.janela = janela
         self.min_amostras = min_amostras
         self.cres_min = cres_min
+        self.cres_rel_min = cres_rel_min   # 5%/s: TTC até ~20 s; abaixo disto é ruído
+        self.confirmar = confirmar
         self.limiar_risco = limiar_risco
         self._hist = {}   # id -> (lista_t, lista_s)
+        self._seguidos = {}   # id -> nº de atualizações seguidas a aproximar-se
 
     def atualizar(self, veic, t, grupo="veic"):
         """veic: dict com 'bb' e 'id'. Devolve lista de TTC (s) alinhada às caixas."""
@@ -40,12 +48,17 @@ class Aproximacao:
                 if tt[-1] > 0:
                     p = np.polyfit(tt, np.array(ss), 1)   # s ≈ p[0]*t + p[1]
                     dsdt, s_now = p[0], np.polyval(p, tt[-1])
-                    if dsdt > self.cres_min and s_now > 0:
-                        ttc[k] = float(s_now / dsdt)
+                    if dsdt > self.cres_min and s_now > 0 and dsdt / s_now >= self.cres_rel_min:
+                        n = self._seguidos[oid] = self._seguidos.get(oid, 0) + 1
+                        if n >= self.confirmar:
+                            ttc[k] = float(s_now / dsdt)
+                    else:
+                        self._seguidos[oid] = 0
         # esquece objetos que já não se veem há muito (memória não cresce sem fim)
         velhos = [o for o, (ts, _) in self._hist.items() if t - ts[-1] > 5.0]
         for o in velhos:
             del self._hist[o]
+            self._seguidos.pop(o, None)
         return ttc
 
     def ttc_minimo(self, ttc):

@@ -73,11 +73,11 @@ class NoPercecao(Node):
         P("sinais_cls", "modelos/sinais_cls.pt")
         P("sinais_pt", "modelos/sinais_pt_cls.pt")    # sinais portugueses ("" desliga)
         P("linhas", True)
-        P("linhas_params", "{}")              # JSON, ex. '{"altura": 1.1}'
+        P("linhas_params", "{}")              # JSON, ex. '{"altura": 1.75}'
         P("seguranca_params", "{}")           # JSON, ex. '{"dist_seguranca": 15}'
         P("limiar_risco", 1.0)                # TTC (s): perigo se <= isto
         P("camara_traseira", True)            # False em vídeos de câmara frontal
-        P("altura_camara", 1.1)               # m (para os marcadores 3D e escala)
+        P("altura_camara", 1.75)              # m (para os marcadores 3D e escala)
         P("frame_imagem", "camera_tras_optical_frame")   # se a imagem vier sem frame_id
         P("frame_corpo", "camera_tras_link")  # referencial dos marcadores 3D
         P("publicar_imagem", True)

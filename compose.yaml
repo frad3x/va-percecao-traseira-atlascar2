@@ -27,7 +27,7 @@ x-ros: &ros
     RMW_IMPLEMENTATION: rmw_fastrtps_cpp
     CAM_X: ${CAM_X:--0.50}    # pose da câmara no base_link (URDF), medir no carro
     CAM_Y: ${CAM_Y:-0.00}
-    CAM_Z: ${CAM_Z:-1.10}
+    CAM_Z: ${CAM_Z:-1.75}
     CAM_ROLL: ${CAM_ROLL:-0.0}
     CAM_PITCH: ${CAM_PITCH:-0.0}
     CAM_YAW: ${CAM_YAW:-3.14159}

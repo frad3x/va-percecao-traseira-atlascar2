@@ -20,7 +20,7 @@
     seguranca_params: "{}"         # JSON, ex. '{"dist_seguranca": 15}'
     limiar_risco: 1.0              # TTC (s): perigo só com 1 s ou menos
     camara_traseira: true
-    altura_camara: 1.1             # m (igual ao CAM_Z do .env)
+    altura_camara: 1.75            # m (igual ao CAM_Z do .env; medido ~1,75 m)
     publicar_imagem: true          # só codifica se alguém estiver a ver o tópico
     jpeg_qualidade: 70
     estacionamento: false          # guias de estacionamento no overlay

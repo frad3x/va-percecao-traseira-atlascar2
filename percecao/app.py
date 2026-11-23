@@ -14,6 +14,8 @@ import json
 import os
 import time
 
+import numpy as np
+
 from .pipeline import Config, Pipeline
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # pasta do projeto
@@ -28,12 +30,42 @@ def nova_pasta_resultados(fonte_path):
     return pasta
 
 
+class GravadorVideo:
+    """Vídeo anotado em H.264 de boa qualidade (texto nítido), com o ffmpeg do pacote
+    imageio-ffmpeg. Sem ele, recai para o 'mp4v' do OpenCV (pior: borra o texto pequeno)."""
+
+    def __init__(self, caminho, fps, largura, altura, crf=18):
+        self.cv = self.gen = None
+        try:
+            import imageio_ffmpeg
+            self.gen = imageio_ffmpeg.write_frames(
+                caminho, (largura, altura), fps=fps, codec="libx264", pix_fmt_in="bgr24",
+                pix_fmt_out="yuv420p", macro_block_size=8,
+                output_params=["-crf", str(crf), "-preset", "veryfast"])
+            self.gen.send(None)
+        except ImportError:
+            import cv2
+            self.cv = cv2.VideoWriter(caminho, cv2.VideoWriter_fourcc(*"mp4v"), fps,
+                                      (largura, altura))
+
+    def write(self, img):
+        if self.gen is not None:
+            self.gen.send(np.ascontiguousarray(img))
+        else:
+            self.cv.write(img)
+
+    def release(self):
+        if self.gen is not None:
+            self.gen.close()
+        elif self.cv is not None:
+            self.cv.release()
+
+
 def processar(fonte, cfg=None, progresso=None, parar=None, gravar_video=False,
               fich_video="video_anotado.mp4", max_frames=0, estacionamento=False,
               log=print):
     """Percorre a fonte (já aberta) com o Pipeline.
     progresso(k, n, res, frame) é chamado a cada imagem; parar() -> True interrompe."""
-    import cv2
     from . import desenho
     cfg = cfg or Config()
     pipe = Pipeline(cfg, log=log)
@@ -50,8 +82,7 @@ def processar(fonte, cfg=None, progresso=None, parar=None, gravar_video=False,
                                     estacionamento=estacionamento)
             if vw is None:
                 os.makedirs(os.path.dirname(fich_video) or ".", exist_ok=True)
-                vw = cv2.VideoWriter(fich_video, cv2.VideoWriter_fourcc(*"mp4v"),
-                                     fonte.fps or 15.0, (anot.shape[1], anot.shape[0]))
+                vw = GravadorVideo(fich_video, fonte.fps or 15.0, anot.shape[1], anot.shape[0])
             vw.write(anot)
         if progresso is not None:
             progresso(idx, n_total, res, frame)

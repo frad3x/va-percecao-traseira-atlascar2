@@ -12,7 +12,7 @@ avaliar a mudança de faixa.
 | | |
 |---|---|
 | **Sensor** | Orbbec Astra Pro (RGB-D), USB; cor 1280×720 a 15 fps (`usb_cam`), profundidade pelo driver Orbbec |
-| **Posição no carro** | `camera_tras_link`, traseira, a olhar para trás: x = −0,50 m, y = 0, z = 1,10 m, yaw = π em relação ao `base_link` (valores provisórios em `.env`, a medir no carro) |
+| **Posição no carro** | `camera_tras_link`, traseira, a olhar para trás: x = −0,50 m, y = 0, z ≈ 1,75 m (altura medida), yaw = π em relação ao `base_link` (x e a inclinação ainda provisórios, no `.env`) |
 | **Driver ROS 2** | `ros-jazzy-usb-cam` (cor); `OrbbecSDK_ROS2` (profundidade, imagem `Dockerfile.rgbd`) |
 | **Saídas** | `/g06/grelha_local`, `/g06/caminho_local`, `/g06/estado`, `/g06/zona_proibida`, `/g06/percecao/*`, `/g06/reacao/*` |
 | **Equipa** | João Tomás (119137), Tomás Frade (113507) |
@@ -163,6 +163,32 @@ um limite de **30** lido como 50 e um sinal de pista de **velocípedes** (D7a) l
 motociclos (D5c) — com 640×480 os sinais têm poucos píxeis; os avisos de **ângulo morto**
 disparam muitas vezes com carros estacionados ao lado da via (33% das imagens com algum aviso).
 
+### Teste das melhorias de 23/11 (3 primeiros e 3 últimos minutos da volta)
+Câmara a **1,75 m** de altura (medida). Painel e texto desenhados sobre a imagem ampliada para
+1280×960 com letra TrueType (antes: letra do OpenCV a 640×480, esborratada em ecrã inteiro);
+vídeo anotado em **H.264** (`imageio-ffmpeg`, CRF 18) em vez de MPEG-4 Part 2. O TTC só é
+mostrado se for ≤ 10 s e só é calculado depois de 3 medições seguidas com a caixa a crescer ≥ 5%/s.
+As linhas que deixam de ser vistas esbatem-se em vez de ficarem desenhadas com a mesma força.
+
+| Troço (2 700 imagens a 15 fps cada) | 3 primeiros min | 3 últimos min |
+|---|---|---|
+| Imagens com linhas / com divisória estimada | 68% / 11% | 45% / 26% |
+| Variação da linha entre imagens a 5 m (mediana / p90) | 0,008 / 0,068 m | 0,013 / 0,108 m |
+| Linha contínua desenhada sobre tinta | 88% | 62% |
+| Tremor vertical da câmara entre imagens (p90) | 1,4 px | 0,9 px |
+| Imagens com aviso | 7% | 37% |
+
+Também se experimentou **compensar o tremor** (correlação de fase acima do horizonte) e um
+**filtro de Kalman** por linha: nos 3 últimos minutos ambos pioraram (alinhamento 0,65 e
+0,46–0,52 contra 0,71 da média exponencial no mesmo ensaio; p90 da variação 0,29–0,63 m com
+Kalman contra 0,11 m),
+por isso ficou a média exponencial. O tremor medido é pequeno (p90 ≤ 1,4 px), não é ele a causa
+principal das falhas das linhas (nestes troços há pouca tinta e muitas bordas de passeio).
+
+Erros que ainda se veem nestes troços: bordas de passeio e de estacionamento tomadas por linha
+tracejada, alguns sinais falsos com confiança baixa (ex. STOP 0,51 num poste) e carros
+estacionados a disparar "veículo atrás" em manobras.
+
 ## Limitações e trabalho futuro
 
 - A distância é **monocular** (chão plano, horizonte estimado): serve para níveis de risco,
@@ -263,7 +289,8 @@ YOLO11 (COCO) com rastreio ByteTrack: veículos, duas rodas (o condutor é fundi
 peões. A distância vem do modelo de chão plano (base da caixa → linha da imagem → metros); o
 tempo até à colisão pelo crescimento da caixa (*looming*). Só há **PERIGO com TTC ≤ 1 s**
 (`LIMIAR_RISCO` no `main.py`, `--limiar-risco`, `limiar_risco` no nó); para mudar de faixa, um
-veículo ao lado com TTC ≤ 4 s já torna a manobra insegura (`ttc_mudanca` em `seguranca.py`).
+veículo ao lado com TTC ≤ 4 s já torna a manobra insegura (`ttc_mudanca` em `seguranca.py`). O TTC só é aceite com a caixa a crescer ≥ 5%/s em 3
+medições seguidas (evita TTC falsos de caixas que tremem) e só é escrito na imagem se for ≤ 10 s.
 Com GPU: `modelos/yolo11m.pt` a 1280 px (apanha sinais e veículos pequenos); só CPU:
 `modelos/yolo11n.pt` a 640 px.
 

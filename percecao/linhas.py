@@ -45,7 +45,7 @@ import numpy as np
 PARAMS = dict(
     # --- geometria da vista de cima ---
     hfov=66.0,            # campo de visão horizontal (graus). Astra Pro ~66°
-    altura=1.1,           # altura da câmara (m): só dá a escala aproximada em metros
+    altura=1.75,          # altura da câmara (m) no ATLASCAR2 (~1,75 m): dá a escala em metros
                           #   (igual ao CAM_Z do .env e ao altura_camara do nó ROS)
     horizonte=None,       # linha do horizonte (fração da altura); None = AUTOMÁTICO
     horizonte_ini=0.52,   # valor inicial, até haver estimativa pelo ponto de fuga
@@ -532,6 +532,8 @@ class DetetorLinhas:
                 if len(pts) >= 2:
                     out[lado] = dict(pts=pts, tipo=tipo, coef=[float(v) for v in e[:3]],
                                      rn_top=float(e[3]),
+                                     # sem medida há algumas imagens: a linha vai esbatendo
+                                     confianca=float(1.0 - self._falta[lado] / (p["memoria"] + 1.0)),
                                      cobertura=float(c["cobertura"]) if c else None,
                                      tracos=self._tracos(e[:3], e[3], g) if tipo == "tracejada" else None)
         for c in outras:

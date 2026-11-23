@@ -47,7 +47,7 @@ def generate_launch_description():
         arguments=[
             '--x', env('CAM_X', '-0.50'),
             '--y', env('CAM_Y', '0.00'),
-            '--z', env('CAM_Z', '1.10'),
+            '--z', env('CAM_Z', '1.75'),
             '--yaw', env('CAM_YAW', '3.14159'),
             '--pitch', env('CAM_PITCH', '0.0'),
             '--roll', env('CAM_ROLL', '0.0'),

@@ -50,6 +50,7 @@ LINHA_ESQ = (40, 40, 235)      # vermelho
 LINHA_DIR = (40, 200, 40)      # verde
 VERDE_FAIXA = (80, 220, 80)    # preenchimento da faixa do carro
 DIVISORIA = (235, 235, 235)    # divisória ESTIMADA (sem linhas pintadas): branco
+TTC_MOSTRAR = 10.0             # s: TTC maiores não se escrevem (não há risco; é só ruído)
 
 NOME_PT = {"car": "carro", "truck": "camiao", "bus": "autocarro", "bicycle": "bicicleta",
            "motorcycle": "mota", "person": "peao", "stop sign": "STOP"}
@@ -58,7 +59,15 @@ FONTE = cv2.FONT_HERSHEY_SIMPLEX
 
 
 def desenhar(frame, res, ttc_risco=1.0, lim_veic=0.5, vista_cima=True, estacionamento=False):
-    out = frame.copy()
+    # Vídeos pequenos (ex. 640x480): anota-se a imagem AMPLIADA, para o texto e o painel
+    # ficarem nítidos quando se vê o vídeo em ecrã inteiro (desenhar pequeno e o leitor
+    # esticar dá letra esborratada). As coordenadas do res são ampliadas na mesma medida.
+    f = ampliacao(frame.shape[0])
+    if f > 1:
+        out = cv2.resize(frame, None, fx=f, fy=f, interpolation=cv2.INTER_CUBIC)
+        res = _escalar_res(res, f)
+    else:
+        out = frame.copy()
     H, W = out.shape[:2]
     e = _escala(H)
     seg = res.get("seg") or {}
@@ -67,13 +76,45 @@ def desenhar(frame, res, ttc_risco=1.0, lim_veic=0.5, vista_cima=True, estaciona
     _linhas(out, lin, e)
     _marcacoes(out, (lin or {}).get("marcacoes", []), e)
     if estacionamento and seg.get("chave"):
-        _guias_estacionamento(out, seg, e)
+        _guias_estacionamento(out, seg, e, f)
     _objetos(out, res, seg, ttc_risco, e)
     _painel(out, res, seg, ttc_risco, e)
     _avisos(out, seg.get("alertas", []), e)
     if vista_cima and lin and lin.get("chave"):
         _vista_de_cima(out, frame, lin, res, e)
     _tira_sinais(out, res.get("sinais_vistos", []), e)
+    return out
+
+
+def ampliacao(H):
+    """Fator inteiro para anotar vídeos com menos de 720 linhas (480 -> 2)."""
+    return int(np.ceil(720.0 / H)) if H < 700 else 1
+
+
+def _escalar_res(res, f):
+    """Cópia do res com as coordenadas de IMAGEM multiplicadas por f (o resto partilha-se)."""
+    out = dict(res)
+    for g in ("veic", "duas_rodas", "peoes", "sinais"):
+        if res.get(g):
+            gr = dict(res[g])
+            gr["bb"] = [[v * f for v in bb] for bb in gr.get("bb", [])]
+            out[g] = gr
+    esc = lambda pts: [[u * f, v * f] for u, v in pts]
+    lin = res.get("linhas")
+    if lin:
+        lin = dict(lin)
+        for lado in ("esq", "dir", "divisoria"):
+            if lin.get(lado):
+                d = dict(lin[lado])
+                d["pts"] = esc(d["pts"])
+                if d.get("tracos") is not None:
+                    d["tracos"] = [esc(t) for t in d["tracos"]]
+                lin[lado] = d
+        lin["outras"] = [dict(o, pts=esc(o["pts"]),
+                              tracos=None if o.get("tracos") is None else [esc(t) for t in o["tracos"]])
+                         for o in lin.get("outras", [])]
+        lin["marcacoes"] = [dict(m, pts=esc(m["pts"])) for m in lin.get("marcacoes", [])]
+        out["linhas"] = lin
     return out
 
 
@@ -87,26 +128,51 @@ def _ascii(txt):
     return unicodedata.normalize("NFKD", str(txt)).encode("ascii", "ignore").decode()
 
 
+def _px(fs):
+    """Tamanho da letra (px) equivalente à escala fs do putText."""
+    return max(9, int(round(27 * fs)))
+
+
+def _pil_texto(img, txt, x, y_base, cor_bgr, tam, negrito=False, contorno=0):
+    """Escreve txt com letra TrueType suavizada (acentos incluídos) diretamente na imagem
+    BGR, mexendo só no retângulo do texto. y_base = linha de base. Devolve a largura."""
+    from PIL import Image, ImageDraw
+    f = _fonte(tam, negrito)
+    x0, y0, x1, y1 = f.getbbox(txt, stroke_width=contorno)
+    w, h = x1 - x0 + 4, y1 - y0 + 4
+    H, W = img.shape[:2]
+    ax, ay = int(x) + x0 - 2, int(y_base) - (f.getmetrics()[0]) + y0 - 2
+    cx0, cy0, cx1, cy1 = max(ax, 0), max(ay, 0), min(ax + w, W), min(ay + h, H)
+    if cx1 <= cx0 or cy1 <= cy0:
+        return w
+    roi = Image.fromarray(img[cy0:cy1, cx0:cx1, ::-1].copy())
+    d = ImageDraw.Draw(roi)
+    d.text((ax - cx0 - x0 + 2, ay - cy0 - y0 + 2), txt, font=f, fill=tuple(int(c) for c in cor_bgr[::-1]),
+           stroke_width=contorno, stroke_fill=(0, 0, 0))
+    img[cy0:cy1, cx0:cx1] = np.asarray(roi)[:, :, ::-1]
+    return w
+
+
 def _texto(img, txt, org, cor=BRANCO, fs=0.5, esp=1, contorno=True):
-    txt = _ascii(txt)
-    if contorno:
-        cv2.putText(img, txt, org, FONTE, fs, PRETO, esp + 2, cv2.LINE_AA)
-    cv2.putText(img, txt, org, FONTE, fs, cor, esp, cv2.LINE_AA)
-    return cv2.getTextSize(txt, FONTE, fs, esp)[0][0]
+    return _pil_texto(img, str(txt), org[0], org[1], cor, _px(fs), negrito=esp > 1,
+                      contorno=1 if contorno else 0)
 
 
 def _rotulo(img, txt, org, cor, fs=0.5, centrado=True):
     """Texto branco sobre um retângulo da cor dada."""
-    txt = _ascii(txt)
+    txt = str(txt)
     if not txt:
         return
-    esp = max(1, int(round(fs * 2)))
-    (tw, th), base = cv2.getTextSize(txt, FONTE, fs, esp)
+    tam = _px(fs)
+    f = _fonte(tam, True)
+    tw = int(f.getlength(txt))
+    asc, desc = f.getmetrics()
+    th = asc
     x = org[0] - tw // 2 if centrado else org[0]
-    x = max(0, min(x, img.shape[1] - tw - 6))
+    x = max(0, min(x, img.shape[1] - tw - 8))
     y = max(th + 6, min(org[1], img.shape[0] - 2))
-    cv2.rectangle(img, (x, y - th - 6), (x + tw + 6, y + base - 2), cor, -1)
-    cv2.putText(img, txt, (x + 3, y - 3), FONTE, fs, BRANCO, esp, cv2.LINE_AA)
+    cv2.rectangle(img, (x, y - th - 5), (x + tw + 8, y + desc - 1), cor, -1)
+    _pil_texto(img, txt, x + 4, y - 2, BRANCO, tam, negrito=True)
 
 
 def _caixa_translucida(img, x0, y0, x1, y1, cor=(20, 20, 20), alfa=0.62):
@@ -146,7 +212,14 @@ def _linhas(img, lin, e):
 
 def _desenha_linha(img, seg, cor, esp):
     """Contínua: a curva toda. Tracejada: SÓ os traços que lá estão (nunca um padrão
-    inventado). Devolve True se desenhou alguma coisa."""
+    inventado). Uma linha só prevista (sem medida há algumas imagens) vai esbatendo.
+    Devolve True se desenhou alguma coisa."""
+    conf = float(seg.get("confianca", 1.0))
+    if conf < 0.99:
+        camada = img.copy()
+        feito = _desenha_linha(camada, dict(seg, confianca=1.0), cor, esp)
+        cv2.addWeighted(camada, max(conf, 0.15), img, 1 - max(conf, 0.15), 0, dst=img)
+        return feito
     if seg.get("tipo") != "tracejada":
         _polilinha(img, seg["pts"], cor, esp, False)
         return True
@@ -198,21 +271,22 @@ def _marcacoes(img, marcs, e):
 
 
 # =========================== guias de estacionamento ===========================
-def _guias_estacionamento(img, seg, e):
+def _guias_estacionamento(img, seg, e, f=1):
     from .linhas import geometria, veic_para_img
     g = geometria(tuple(seg["chave"]))[0]
     H = img.shape[0]
     meia = 0.9                                        # metade da largura do carro (m)
     troços = [(0.3, 1.0, VERMELHO), (1.0, 2.0, AMARELO), (2.0, 3.0, VERDE)]
     esp = max(2, int(3 * e))
+    vi = lambda x, y: tuple(c * f for c in veic_para_img(x, y, g))    # na imagem ampliada
     for x0, x1, cor in troços:
         for lado in (meia, -meia):
-            u0, v0 = veic_para_img(x0, lado, g)
-            u1, v1 = veic_para_img(x1, lado, g)
-            if min(v0, v1) < H and max(v0, v1) > g["y_h"]:
+            u0, v0 = vi(x0, lado)
+            u1, v1 = vi(x1, lado)
+            if min(v0, v1) < H and max(v0, v1) > g["y_h"] * f:
                 cv2.line(img, (int(u0), int(v0)), (int(u1), int(v1)), cor, esp, cv2.LINE_AA)
-        u0, v0 = veic_para_img(x1, meia, g)
-        u1, v1 = veic_para_img(x1, -meia, g)
+        u0, v0 = vi(x1, meia)
+        u1, v1 = vi(x1, -meia)
         if v0 < H:
             cv2.line(img, (int(u0), int(v0)), (int(u1), int(v1)), cor, max(1, esp - 1), cv2.LINE_AA)
             _texto(img, f"{x1:.0f} m", (int(u1) + 6, int(v1) + 4), cor, 0.45 * e)
@@ -238,8 +312,8 @@ def _objetos(img, res, seg, ttc_risco, e):
                 partes.append(("<" if _get(gr, "cortada", i, False) else "") + f"{d:.0f} m")
             ttc = _get(gr, "ttc", i)
             risco = ttc is not None and np.isfinite(ttc) and ttc <= ttc_risco
-            if ttc is not None and np.isfinite(ttc):
-                partes.append(f"TTC {ttc:.1f}s")
+            if ttc is not None and np.isfinite(ttc) and ttc <= TTC_MOSTRAR:
+                partes.append(f"TTC {ttc:.1f}s")       # só os que se aproximam a sério
             if grupo == "sinais" and _get(gr, "sc", i) is not None:
                 partes.append(f"{gr['sc'][i]:.2f}")
             e_seguidor = seguidor.get("grupo") == grupo and seguidor.get("i") == i
@@ -430,7 +504,7 @@ def _painel(img, res, seg, ttc_risco, e):
     # cartão: fundo preto translúcido, cantos redondos, faixa verde UA à esquerda
     fundo = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
     fd = ImageDraw.Draw(fundo)
-    fd.rounded_rectangle([0, 0, pw - 1, ph - 1], radius=int(12 * k), fill=(10, 10, 10, 200),
+    fd.rounded_rectangle([0, 0, pw - 1, ph - 1], radius=int(12 * k), fill=(12, 12, 12, 252),
                          outline=(255, 255, 255, 30))
     fd.rounded_rectangle([0, 0, int(4 * k), ph - 1], radius=int(2 * k), fill=UA_VERDE + (255,))
     fundo.alpha_composite(tela.crop((0, 0, pw, ph)))
@@ -451,16 +525,16 @@ def _avisos(img, alertas, e):
     perigo = any(n == "perigo" for n, _ in alertas)
     if perigo:                                         # moldura vermelha
         cv2.rectangle(img, (0, 0), (W - 1, H - 1), VERMELHO, max(4, int(6 * e)))
-    fs = 0.62 * e
+    tam = _px(0.62 * e)
+    f = _fonte(tam, True)
     y = int(14 * e)
     for nivel, txt in alertas[:3]:
         cor = VERMELHO if nivel == "perigo" else AMBAR
-        txt = "! " + _ascii(txt)
-        (tw, th), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_DUPLEX, fs, 2)
+        txt = "! " + str(txt)
+        tw, th = int(f.getlength(txt)), f.getmetrics()[0]
         x = (W - tw) // 2
-        _caixa_translucida(img, x - 12, y, x + tw + 12, y + th + int(14 * e), cor, 0.85)
-        cv2.putText(img, txt, (x, y + th + int(7 * e)), cv2.FONT_HERSHEY_DUPLEX, fs, BRANCO, 2,
-                    cv2.LINE_AA)
+        _caixa_translucida(img, x - 12, y, x + tw + 12, y + th + int(14 * e), cor, 0.88)
+        _pil_texto(img, txt, x, y + th + int(5 * e), BRANCO, tam, negrito=True)
         y += th + int(20 * e)
 
 

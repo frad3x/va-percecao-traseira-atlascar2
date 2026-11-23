@@ -4,7 +4,7 @@
 
   Para INCLUIR no URDF comum do carro (que já define o base_link):
     <xacro:include filename="camera_tras.urdf.xacro"/>
-    <xacro:camera_tras parent="base_link" x="-0.50" y="0" z="1.10" roll="0" pitch="0" yaw="3.14159"/>
+    <xacro:camera_tras parent="base_link" x="-0.50" y="0" z="1.75" roll="0" pitch="0" yaw="3.14159"/>
 
   Frames:
     camera_tras_link          — corpo da câmara: x para onde a câmara olha (para TRÁS do
@@ -16,7 +16,7 @@
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:macro name="camera_tras" params="parent:=base_link x:=-0.50 y:=0.0 z:=1.10 roll:=0.0 pitch:=0.0 yaw:=3.14159">
+  <xacro:macro name="camera_tras" params="parent:=base_link x:=-0.50 y:=0.0 z:=1.75 roll:=0.0 pitch:=0.0 yaw:=3.14159">
 
     <link name="camera_tras_link">
       <!-- caixa com as dimensões aproximadas da Astra Pro (165 x 40 x 30 mm) -->
