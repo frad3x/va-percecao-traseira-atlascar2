@@ -84,13 +84,23 @@ PARAMS = dict(
                           #   as riscas das passadeiras têm ~0,5 m
     contraste_min=12,     # tinta - asfalto (o lado mais escuro, a 0,35 m), níveis 0-255, sem
                           #   CLAHE. Medido: linhas reais 32-117 (mediana); fissuras/terra 0-2
+    contraste_claro_min=6,  # tinta - o lado mais CLARO (0,2-0,5 m): asfalto dos dois lados.
+    simetria_min=0.65,      # (tinta - lado claro) / (tinta - lado escuro). Bordas de passeio,
+                            #   de estacionamento e as diagonais das riscas das passadeiras têm
+                            #   um lado claro (ratio < 0,6); linhas pintadas ~0,8-1. Medido na
+                            #   volta real: corta quase todas as bermas e perde 1 linha em ~270
     # --- sem linhas: divisória ESTIMADA a meio da estrada (asfalto segmentado) ---
     divisoria=True,
     estrada_lado=7.0,     # m para cada lado na vista larga usada para achar as bermas
     estrada_longe=20.0,   # m: até onde se procura a estrada
     largura_estrada=(4.0, 14.0),   # m: largura plausível da estrada
+    faixa_largura=3.5,    # m: largura de uma via (para a divisória quando o meio falha)
+    divisoria_lado_min=1.2,  # m: a divisória fica pelo menos isto à ESQUERDA do carro
     textura_asfalto_max=9.0,       # desvio padrão local máx. do "asfalto" atrás do carro
                                    #   (medido: asfalto 2-6,5; calçada ~9,7)
+    textura_chao_max=15.0,         # idem, medido na IMAGEM (sem a desfocagem da vista de
+                                   #   cima), no chão logo atrás do carro. Medido: asfalto 3-5,5,
+                                   #   chão da garagem ~2, calçada portuguesa ~50
     # --- tempo ---
     alpha=0.35,           # suavização (0 = nada muda, 1 = sem suavização)
     memoria=8,            # frames que uma linha "sobrevive" sem ser vista
@@ -701,6 +711,15 @@ def _bermas(frame, excluir, g, p):
             x, y, w_, h_ = [int(v) for v in bb]
             cv2.rectangle(m, (x - 4, y - 4), (x + w_ + 4, y + h_ + 4), 255, -1)
         carros = cv2.remap(m, mx, my, cv2.INTER_NEAREST) > 0
+    # o chão logo atrás do carro, na imagem: a calçada tem juntas a cada ~10 cm, que a vista
+    # de cima (9 cm/píxel, desfocada) apaga; aqui veem-se bem
+    H = frame.shape[0]
+    W = frame.shape[1]
+    roi = cv2.cvtColor(frame[int(0.8 * H):, int(0.35 * W):int(0.65 * W)], cv2.COLOR_BGR2LAB)[:, :, 0]
+    roi = roi.astype(np.float32)
+    mu = cv2.blur(roi, (7, 7))
+    if float(np.median(np.sqrt(np.maximum(cv2.blur(roi * roi, (7, 7)) - mu * mu, 0)))) > p["textura_chao_max"]:
+        return None                         # o carro está em calçada / terra: não há estrada
     lab = cv2.cvtColor(cv2.GaussianBlur(bev, (5, 5), 0), cv2.COLOR_BGR2LAB).astype(np.float32)
     L, A, Bc = lab[:, :, 0], lab[:, :, 1], lab[:, :, 2]
     # asfalto de referência: logo atrás do carro, ao centro
@@ -783,6 +802,14 @@ def _bermas(frame, excluir, g, p):
     #    horizonte ligeiramente errado (as bermas abrem ou fecham por igual; o meio não)
     ym = ajusta(pm)
     if ym is not None:
+        # Circula-se pela direita: a divisória fica à ESQUERDA do carro (y < 0 aqui, que é a
+        # direita da imagem da câmara traseira). Se o "meio" cai debaixo do carro, a
+        # segmentação parou antes da berma do outro lado (asfalto de outra cor, sombras,
+        # carros) — então assume-se o carro a meio da sua via e põe-se a divisória meia via
+        # à esquerda, com a direção medida.
+        y6 = float(np.interp(6.0, xq, ym))
+        if y6 > -p["divisoria_lado_min"]:
+            ym = ym - (y6 + p["faixa_largura"] / 2.0)
         return ym
     # (só com uma berma não se estima: no vídeo real dava divisórias tortas)
     return None
@@ -842,6 +869,21 @@ def _tipo_linha(c, marcas_dil, marcas, g, p, bruto=None):
                                canal[rr, np.clip(cc + off, 0, bw - 1)])
             contr = max(contr, float(np.median(dentro - lados)))
         if contr < p["contraste_min"]:
+            return None, cob
+        # dos DOIS lados há asfalto mais escuro: uma borda (passeio, calçada, estacionamento,
+        # risca de passadeira) é clara de um lado e escura do outro
+        offs = sorted({max(1, int(o * g["ppm"])) for o in (0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5)})
+        simetrica = False
+        for canal in bruto:
+            dentro = canal[rr, cc]
+            e = np.median([canal[rr, np.clip(cc - o, 0, bw - 1)] for o in offs], axis=0)
+            d = np.median([canal[rr, np.clip(cc + o, 0, bw - 1)] for o in offs], axis=0)
+            c_claro = float(np.median(dentro - np.maximum(e, d)))
+            c_escuro = float(np.median(dentro - np.minimum(e, d)))
+            if c_claro >= p["contraste_claro_min"] and c_claro >= p["simetria_min"] * c_escuro:
+                simetrica = True
+                break
+        if not simetrica:
             return None, cob
     if cob >= p["cobertura_continua"]:
         return "continua", cob

@@ -170,13 +170,33 @@ vídeo anotado em **H.264** (`imageio-ffmpeg`, CRF 18) em vez de MPEG-4 Part 2. 
 mostrado se for ≤ 10 s e só é calculado depois de 3 medições seguidas com a caixa a crescer ≥ 5%/s.
 As linhas que deixam de ser vistas esbatem-se em vez de ficarem desenhadas com a mesma força.
 
+**Bermas deixam de ser linhas.** Uma linha pintada tem asfalto mais escuro dos *dois* lados;
+a borda de um passeio, de uma zona de estacionamento ou a diagonal das riscas de uma
+passadeira é clara de um lado. Exige-se agora `tinta − lado claro ≥ 6` e
+`(tinta − lado claro) ≥ 0,65·(tinta − lado escuro)` (lados a 0,2–0,5 m). Em ~1 200 candidatas
+revistas à mão nos dois troços, as rejeitadas eram bermas, calçada e passadeiras; perdeu-se
+1 linha verdadeira.
+
+**Divisória estimada fora da nossa via.** Circula-se pela direita, logo a divisória fica à
+esquerda do carro (à direita na imagem da câmara traseira). Na volta real o "meio do asfalto"
+calhava quase sempre debaixo do carro (a segmentação para antes da berma do outro lado: asfalto
+de outra cor, sombras, carros); quando isso acontece (meio a menos de 1,2 m para a esquerda), a
+divisória passa a ficar **meia via (1,75 m) à esquerda do carro**, com a direção da estrada
+medida. Nestes troços isso aconteceu sempre — a posição lateral é, na prática, assumida e não
+medida. Com o carro em calçada (textura do chão na imagem > 15) não se estima divisória
+(saída da garagem: de 67% para 2% das imagens).
+
 | Troço (2 700 imagens a 15 fps cada) | 3 primeiros min | 3 últimos min |
 |---|---|---|
-| Imagens com linhas / com divisória estimada | 68% / 11% | 45% / 26% |
-| Variação da linha entre imagens a 5 m (mediana / p90) | 0,008 / 0,068 m | 0,013 / 0,108 m |
-| Linha contínua desenhada sobre tinta | 88% | 62% |
+| Imagens com linhas (antes → agora) | 68% → 33% | 45% → 3% |
+| Imagens com divisória estimada (antes → agora) | 11% → 10% | 26% → 48% |
+| Variação da linha entre imagens a 5 m (p90, antes → agora) | 0,068 → 0,032 m | 0,108 → 0,022 m |
+| Linha contínua desenhada sobre tinta | 88% → 90% | 62% → 64% |
 | Tremor vertical da câmara entre imagens (p90) | 1,4 px | 0,9 px |
-| Imagens com aviso | 7% | 37% |
+| Imagens com aviso | 7% | 39% |
+
+A queda de "imagens com linhas" são as bermas e passadeiras que deixaram de contar: os últimos
+3 minutos são ruas quase sem tinta.
 
 Também se experimentou **compensar o tremor** (correlação de fase acima do horizonte) e um
 **filtro de Kalman** por linha: nos 3 últimos minutos ambos pioraram (alinhamento 0,65 e
@@ -185,8 +205,7 @@ Kalman contra 0,11 m),
 por isso ficou a média exponencial. O tremor medido é pequeno (p90 ≤ 1,4 px), não é ele a causa
 principal das falhas das linhas (nestes troços há pouca tinta e muitas bordas de passeio).
 
-Erros que ainda se veem nestes troços: bordas de passeio e de estacionamento tomadas por linha
-tracejada, alguns sinais falsos com confiança baixa (ex. STOP 0,51 num poste) e carros
+Erros que ainda se veem nestes troços: alguns sinais falsos com confiança baixa (ex. STOP 0,51 num poste) e carros
 estacionados a disparar "veículo atrás" em manobras.
 
 ## Limitações e trabalho futuro
