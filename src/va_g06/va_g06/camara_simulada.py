@@ -22,7 +22,7 @@ from sensor_msgs.msg import CompressedImage
 def estrada_sintetica(k, w=1280, h=720):
     """Imagem k de uma estrada vista por uma câmara traseira (sem dependências)."""
     img = np.zeros((h, w, 3), np.uint8)
-    hz = int(0.48 * h)
+    hz = int(0.365 * h)                                         # horizonte da câmara real
     img[:hz] = (200, 170, 140)                                  # céu
     img[hz:] = (70, 70, 70)                                     # asfalto
     fuga = (w // 2, hz)

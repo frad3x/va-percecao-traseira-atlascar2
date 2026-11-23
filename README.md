@@ -146,6 +146,10 @@ Figuras geradas com `python tools/figura_grelha.py data/passeio_20261120_091854/
 
 ![Grelha local e A* em três instantes da volta real](docs/img/grelha_instantes.png)
 
+> Os valores desta tabela e dos gráficos são da análise da volta completa feita **antes** de
+> 23/11, com o horizonte estimado automaticamente (ver "Horizonte fixo" abaixo): as distâncias
+> estavam sobrestimadas e alguns carros ficavam sem distância.
+
 | Grandeza (volta real) | Valor |
 |---|---|
 | Imagens com as 2 linhas da faixa / com pelo menos 1 | 41% / 85% (cidade: marcas gastas, cruzamentos, carros estacionados) |
@@ -230,10 +234,49 @@ principal das falhas das linhas (nestes troços há pouca tinta e muitas bordas 
 Erros que ainda se veem nestes troços: alguns sinais falsos com confiança baixa (ex. STOP 0,51 num poste) e carros
 estacionados a disparar "veículo atrás" em manobras.
 
+### Horizonte fixo e novo desenho (23/11, à tarde)
+**Horizonte.** O horizonte era estimado pelo ponto de fuga das retas da imagem; na volta real
+essas retas são sobretudo bermas, carros estacionados e edifícios, e a estimativa ficava em
+~250 px de 480, quando o ponto de fuga da estrada está a ~175 px (verificado em quatro troços
+diferentes da volta). Com a câmara fixa no carro o horizonte é praticamente constante, por isso
+passou a estar **fixo em 0,365 da altura nos vídeos 640×480 desta câmara**
+(`horizonte_conhecido` em `percecao/linhas.py`); os vídeos de outras câmaras (outras
+resoluções) continuam com o ponto de fuga automático. O valor foi medido na gravação a 640×480;
+para o fluxo a 1280×720 do `usb_cam` ainda está por medir (até lá, ponto de fuga ou
+`linhas_params: '{"horizonte": ...}'` no `params.yaml`). Efeitos vistos: o tracejado central passa a ser
+detetado até muito mais longe, a faixa do carro encaixa na via, carros que ficavam "acima do
+horizonte" passam a ter distância e as distâncias deixam de vir sobrestimadas (o autocarro que
+segue atrás aos 150 s: ~40 m antes, ~15 m agora, coerente com a imagem). A estrada sintética
+do nó `camara_simulada` usa o mesmo horizonte.
+
+**Desenho.**
+- a **faixa do carro** é pintada no chão com um degradê que se apaga ao longe; com uma só
+  linha ou só com a divisória, a outra margem fica a uma largura de faixa (medida, ou 3,5 m) e
+  não é desenhada como linha;
+- a mini vista de cima (que era a imagem deformada, quase só asfalto cinzento) passou a ser um
+  **radar esquemático** no estilo do painel: o carro, a estrada até 40 m, as linhas, a faixa e
+  os agentes à escala (o seguidor com a cor do estado);
+- **foco**: veículos fora das faixas que interessam, a mais de 45 m ou a afastarem-se
+  (> 1,5 m/s) ficam só com os cantos, discretos e sem rótulo;
+- vídeos de 640×480: a imagem ampliada leva um realce suave (contraste local, cor e nitidez)
+  **só no que se mostra**; as deteções usam a imagem original.
+- os avisos no topo ficam no espaço entre o painel e a vista de cima (não os tapam).
+
+![Desenho na volta real](docs/img/desenho_volta_real.jpg)
+
+Medido de novo (pipeline completo, 2 700 imagens por troço), em relação à tabela anterior: a
+linha a 6 m salta menos (p90 0,034 → 0,025 m e 0,042 → 0,024 m), as caixas ficam iguais e,
+como passa a haver mais linhas detetadas, o aparecer/desaparecer das linhas nos 3 primeiros
+minutos sobe de 5,7 para 8,3 por minuto. As **imagens com aviso** sobem (7% → 21% e
+38% → 57%): com a distância certa, os carros estacionados ao lado e atrás (parque, saída da
+garagem) passam a estar perto e disparam "ângulo morto" e "veículo atrás"; continuam a não ser
+distinguidos dos que circulam.
+
 ## Limitações e trabalho futuro
 
-- A distância é **monocular** (chão plano, horizonte estimado): serve para níveis de risco,
-  não para medir com precisão; depende de `altura_camara` e da pose certa da câmara.
+- A distância é **monocular** (chão plano, horizonte fixo): serve para níveis de risco,
+  não para medir com precisão; depende de `altura_camara`, do horizonte e da pose da câmara.
+  Numa subida ou descida o horizonte real muda e a distância erra.
 - A volta real foi gravada como vídeo (não como bag ROS): falta repetir a recolha com o
   `docker compose --profile sensor --profile gravar up` para ter o MCAP com `/tf_static`.
 - O classificador dos sinais portugueses foi treinado com imagens sintéticas: em fotografias
@@ -276,12 +319,15 @@ gráficos e, se pedido, o vídeo anotado. Player: **ESPAÇO** play/pausa · **A/
 | `src/va_percecao_msgs/` | Mensagens do grupo (`Agentes`, `Pavimento`, `EstadoSeguranca`, `Acao`, …) |
 | `percecao/` | Núcleo Python (usado pelo nó e pela aplicação off-line): `pipeline`, `detecao`, `estabilizar`, `linhas`, `sinais*`, `aproximacao`, `seguranca`, `desenho`, `fontes`, `app`, `gui`, `player`, `percecao3d`, … |
 | `main.py` | Aplicação off-line — basta dar Run |
-| `modelos/` | Pesos: sinais (deteção GTSDB, 43 tipos GTSRB, 159 sinais PT) + YOLO base |
+| `modelos/` | Pesos dos sinais (deteção GTSDB, 43 tipos GTSRB, 159 sinais PT), via Git LFS; os YOLO base (`yolo11n/m.pt`) descarregam-se sozinhos |
 | `treino/` | Treino dos modelos de sinais (`treinar_sinais.py`, `sinais_pt.py`) |
 | `tools/` | `figura_bag.py` (figuras a partir de um bag), `renomear_grupo.sh`, atalho da app, Argoverse |
-| `docs/img/` | Figuras e GIF do README |
+| `docs/` | Plano de projeto (`plano_de_projeto_G6.pdf`) e figuras do README (`img/`) |
+| `assets/` | Ícone da aplicação |
+| `requirements.txt`, `pyproject.toml` | Dependências Python da aplicação off-line |
 | `data/` | Bags e vídeos (volume `/data`; fora do GitHub) |
-| `va_datasets/` | Datasets de treino (GTSDB, GTSRB, sinais PT) |
+| `resultados/` | Uma pasta por análise da aplicação (CSV, gráficos, vídeo anotado); fora do GitHub |
+| `va_datasets/` | Desenhos dos sinais PT (com créditos) e métricas dos treinos (`runs/`). GTSRB, GTSDB e Argoverse ficam só no disco: descarregam-se com `treino/dados_sinais.py` e `tools/descarregar_argoverse.py` |
 | `.github/workflows/ci.yml`, `.devcontainer/` | CI (constrói a imagem e corre os testes) e contentor de desenvolvimento |
 
 # Perceção — métodos
@@ -292,7 +338,7 @@ Segue o exemplo *Visual Perception Using Monocular Camera* da aula 5, passo a pa
 
 | Passo | Aula 5 | Aqui |
 |---|---|---|
-| Vista de cima | `birdsEyeView` | IPM com chão plano; horizonte **estimado sozinho** (ponto de fuga) |
+| Vista de cima | `birdsEyeView` | IPM com chão plano; horizonte fixo (câmara do ATLASCAR2, 640×480) ou estimado pelo ponto de fuga |
 | Marcas | `segmentLaneMarkerRidge` | ridge simétrico + contraste local (CLAHE) |
 | Linhas | `findParabolicLaneBoundaries` | janelas deslizantes + **parábolas por RANSAC** |
 | Rejeição | `validateBoundaryFcn`, `isOfMinLength`, força | curvatura no troço visível, comprimento mín., força ≥ 20% da maior |
@@ -301,7 +347,8 @@ Segue o exemplo *Visual Perception Using Monocular Camera* da aula 5, passo a pa
 | Dashboard (ex. 4b) | triângulos | **amarelo** se só há 1 linha, **vermelho** se nenhuma |
 | Estatística (ex. 4a/4c) | estrutura por frame | `linhas.csv` (`frameID, frameTime, leftLine, leftLineType, …`) |
 
-- **Horizonte automático** pela mediana do ponto de fuga; vista de cima relativa à imagem
+- **Horizonte** fixo em 0,365 da altura nos vídeos 640×480 da câmara do ATLASCAR2 (medido na
+  volta real); nas outras resoluções, pela mediana do ponto de fuga; vista de cima relativa à imagem
   (só a estrada próxima entra).
 - **Brancas em `min(R,G,B)`** (o reflexo do sol no asfalto desaparece); amarelas em `(R+G)/2 − B`.
 - **Contínua/tracejada**: cobertura ≈ 1,00 vs ≈ 0,64 → limiar 0,88.

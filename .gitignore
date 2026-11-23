@@ -30,3 +30,10 @@ resultados/
 
 # Dataset sintético dos sinais PT (regenera-se com treino/sinais_pt.py)
 va_datasets/sinais_pt/sintetico/
+
+# Datasets descarregáveis: ficam no disco, não no GitHub
+#   GTSRB / GTSDB  -> treino/dados_sinais.py (chamado por treino/treinar_sinais.py)
+#   Argoverse      -> python tools/descarregar_argoverse.py
+va_datasets/gtsrb_cls/
+va_datasets/gtsdb_yolo_categorias/
+va_datasets/argoverse/

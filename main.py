@@ -36,7 +36,9 @@ USAR_TRACK = True          # rastreio com IDs (ByteTrack) — preciso para o TTC
 LINHAS = True              # deteção das linhas da faixa (método da aula 5, sem calibração)
 # Afinar as linhas para ESTE vídeo (opcional; ver PARAMS em percecao/linhas.py). Ex.:
 #   {"v_base": 0.82}     -> a câmara apanha o carro/capô em baixo (ex. Argoverse)
-#   {"horizonte": 0.50}  -> fixar o horizonte em vez de o estimar
+#   {"horizonte": 0.40}  -> fixar o horizonte (fração da altura). Por omissão é fixo
+#                           em 0.365 nos vídeos 640x480 da câmara do ATLASCAR2 e estimado
+#                           pelo ponto de fuga nos outros
 LINHAS_PARAMS = {}
 SINAIS_CLASSICO = True     # YOLO (stop) + detetor clássico (restantes sinais PT)
 # Sinais TREINADOS (gerados por treino/treinar_sinais.py). Se existirem, substituem o

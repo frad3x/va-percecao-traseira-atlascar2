@@ -19,9 +19,10 @@ Sem calibração: a vista de cima é definida RELATIVAMENTE À IMAGEM — a linh
 baixo cobre a largura da imagem e o topo fica a uma fração do caminho até ao
 horizonte (só a estrada próxima, onde o chão é plano). Todos os limiares são
 frações da largura da vista de cima, por isso funcionam com qualquer câmara.
-O único parâmetro crítico é o HORIZONTE: é ESTIMADO automaticamente pelo ponto
-de fuga das linhas (mediana ao longo do tempo) — com ele certo, as linhas ficam
-paralelas na vista de cima. Pode fixar-se em PARAMS['horizonte'].
+O único parâmetro crítico é o HORIZONTE: com ele certo, as linhas ficam paralelas
+na vista de cima. Nos vídeos 640x480 da câmara do ATLASCAR2 é fixo (medido, ver
+horizonte_conhecido); nos outros é ESTIMADO pelo ponto de fuga das linhas (mediana
+ao longo do tempo). Pode fixar-se em PARAMS['horizonte'].
 (hfov/altura só dão uma escala aproximada em metros; não mudam a deteção.)
 
 Sentido de esq./dir.: o da IMAGEM (numa câmara traseira, a esquerda da imagem é a
@@ -47,7 +48,13 @@ PARAMS = dict(
     hfov=66.0,            # campo de visão horizontal (graus). Astra Pro ~66°
     altura=1.75,          # altura da câmara (m) no ATLASCAR2 (~1,75 m): dá a escala em metros
                           #   (igual ao CAM_Z do .env e ao altura_camara do nó ROS)
-    horizonte=None,       # linha do horizonte (fração da altura); None = AUTOMÁTICO
+    horizonte=None,       # linha do horizonte (fração da altura); None = automático: fixo se a
+                          #   resolução estiver em horizonte_conhecido, senão pelo ponto de fuga
+    # Câmara traseira do ATLASCAR2 (Orbbec Astra Pro, cor gravada a 640x480): está FIXA no
+    # carro, por isso o horizonte é praticamente constante — medido na volta real, o ponto de
+    # fuga da estrada fica a ~175 px de 480 em vários troços. O ponto de fuga automático
+    # escolhia bermas e carros estacionados e dava ~250 px (distâncias e linhas erradas).
+    horizonte_conhecido={(640, 480): 0.365},
     horizonte_ini=0.52,   # valor inicial, até haver estimativa pelo ponto de fuga
     v_base=0.92,          # linha mais baixa usada (fração da altura): corta capô / OSD
     frac_topo=0.20,       # topo da vista: 20% do caminho do horizonte até à base
@@ -460,6 +467,9 @@ class DetetorLinhas:
         p = self.p
         if p["horizonte"] is not None:
             return p["horizonte"] * H
+        fixo = (p.get("horizonte_conhecido") or {}).get((frame.shape[1], H))
+        if fixo is not None:
+            return fixo * H
         self._k += 1
         passo = 3 if len(self._amostras_h) < 60 else 15
         if self._k % passo == 1:

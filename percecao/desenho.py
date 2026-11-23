@@ -1,6 +1,9 @@
 """
 desenho.py — overlay das deteções e dos avisos sobre a imagem (OpenCV).
 
+Vídeos pequenos (640x480) são anotados ampliados e com um realce suave (só no que se
+mostra; as deteções usam a imagem original).
+
 Camadas (de baixo para cima):
   1) Marcações no pavimento: faixa do carro preenchida; linha esquerda a VERMELHO e
      direita a VERDE (como o insertLaneBoundary da aula 5), como FITAS com a largura em
@@ -21,7 +24,8 @@ Camadas (de baixo para cima):
      vermelho: nenhuma).
   5) Faixa de AVISO no topo (risco de colisão, peão atrás, ângulo morto...) e moldura
      vermelha em caso de perigo.
-  6) Mini VISTA DE CIMA (canto superior direito) com as linhas E os objetos.
+  6) VISTA DE CIMA esquemática (canto superior direito, estilo do painel): o carro, a
+     estrada até 40 m, linhas, faixa do carro e agentes à escala.
   7) Tira com os últimos SINAIS reconhecidos (recorte + nome), no canto inferior esquerdo.
 """
 import os
@@ -66,7 +70,7 @@ def desenhar(frame, res, ttc_risco=1.0, lim_veic=0.5, vista_cima=True, estaciona
     # esticar dá letra esborratada). As coordenadas do res são ampliadas na mesma medida.
     f = ampliacao(frame.shape[0])
     if f > 1:
-        out = cv2.resize(frame, None, fx=f, fy=f, interpolation=cv2.INTER_CUBIC)
+        out = _realcar(cv2.resize(frame, None, fx=f, fy=f, interpolation=cv2.INTER_CUBIC))
         res = _escalar_res(res, f)
     else:
         out = frame.copy()
@@ -75,6 +79,7 @@ def desenhar(frame, res, ttc_risco=1.0, lim_veic=0.5, vista_cima=True, estaciona
     seg = res.get("seg") or {}
     lin = res.get("linhas")
 
+    _faixa_do_carro(out, lin, seg, e, f)
     _linhas(out, lin, e)
     _marcacoes(out, (lin or {}).get("marcacoes", []), e)
     if estacionamento and seg.get("chave"):
@@ -83,9 +88,88 @@ def desenhar(frame, res, ttc_risco=1.0, lim_veic=0.5, vista_cima=True, estaciona
     _painel(out, res, seg, ttc_risco, e)
     _avisos(out, seg.get("alertas", []), e)
     if vista_cima and lin and lin.get("chave"):
-        _vista_de_cima(out, frame, lin, res, e)
+        _radar(out, res, seg, lin, e)
     _tira_sinais(out, res.get("sinais_vistos", []), e)
     return out
+
+
+def _realcar(img):
+    """Só para MOSTRAR um vídeo pequeno ampliado: contraste local suave (CLAHE na luminância),
+    um pouco mais de cor e nitidez (unsharp). As deteções usam sempre a imagem original."""
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    lab[:, :, 0] = _CLAHE_VIS.apply(lab[:, :, 0])
+    lab[:, :, 1:] = np.clip((lab[:, :, 1:].astype(np.int16) - 128) * 1.12 + 128, 0, 255).astype(np.uint8)
+    out = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    desf = cv2.GaussianBlur(out, (0, 0), 1.4)
+    return cv2.addWeighted(out, 1.4, desf, -0.4, 0)
+
+
+_CLAHE_VIS = cv2.createCLAHE(clipLimit=1.25, tileGridSize=(6, 6))
+
+
+def _faixa_do_carro(img, lin, seg, e, f=1):
+    """A faixa do carro pintada no chão, com um degradê que se apaga ao longe. Com as duas
+    linhas, entre elas; com uma só linha ou só com a divisória estimada, a outra margem fica
+    a uma largura de faixa (medida quando houve duas linhas; 3,5 m por omissão) — essa margem
+    não é desenhada como linha, só o preenchimento a esbater."""
+    if not lin or not lin.get("chave"):
+        return
+    from .linhas import geometria, img_para_chao, lateral_da_linha, veic_para_img
+    g = geometria(tuple(lin["chave"]))[0]
+    esq, dir_, div = lin.get("esq"), lin.get("dir"), lin.get("divisoria")
+    L = float((seg or {}).get("larg_faixa") or 3.5)
+    x_fundo = img_para_chao(g["W"] / 2.0, g["H"] - 1.0, g)[0]     # o chão na última linha
+    x0 = max(0.5, min(g["x_near"], x_fundo if np.isfinite(x_fundo) else g["x_near"]) - 0.3)
+    xs = np.concatenate([[x0], np.linspace(max(g["x_near"], x0 + 0.5), 28.0, 28)])
+
+    def lat(sg):
+        return np.array([lateral_da_linha(sg, float(x), g) for x in xs])
+
+    def alcance(sg):
+        return g["x_far"] - max(sg.get("rn_top", 0.0), 0.0) * (g["x_far"] - g["x_near"])
+
+    conf = 1.0
+    if esq and dir_:
+        ye, yd = lat(esq), lat(dir_)
+        x_max = min(alcance(esq), alcance(dir_))
+        a0 = 0.26
+    elif esq or dir_:
+        sg = esq or dir_
+        y = lat(sg)
+        ye, yd = (y, y - L) if esq else (y + L, y)
+        x_max = alcance(sg)
+        a0 = 0.22
+    elif div:
+        yd = lat(div)
+        ye = yd + L
+        x_max = 22.0
+        a0 = 0.18
+        conf = float(div.get("confianca", 1.0))
+    else:
+        return
+    for sg in (esq, dir_):
+        if sg:
+            conf = min(conf, float(sg.get("confianca", 1.0)))
+    ok = xs <= x_max
+    if ok.sum() < 3:
+        return
+    xs_, ye, yd = xs[ok], ye[ok], yd[ok]
+    H, W = img.shape[:2]
+    mascara = np.zeros((H, W), np.uint8)
+    n = len(xs_)
+    for i in range(n - 1):            # bandas: perto opaco, longe transparente
+        quad = [veic_para_img(xs_[i], ye[i], g), veic_para_img(xs_[i + 1], ye[i + 1], g),
+                veic_para_img(xs_[i + 1], yd[i + 1], g), veic_para_img(xs_[i], yd[i], g)]
+        quad = np.array([[u * f, v * f] for u, v in quad], np.float32)
+        if not np.all(np.isfinite(quad)):
+            continue
+        a = a0 * conf * (1.0 - i / (n - 1)) ** 1.3
+        cv2.fillPoly(mascara, [quad.astype(np.int32)], int(255 * a), cv2.LINE_AA)
+    if not mascara.any():
+        return
+    m = cv2.GaussianBlur(mascara, (0, 0), 2.0).astype(np.float32)[:, :, None] / 255.0
+    cor = np.array(VERDE_FAIXA, np.float32)
+    img[:] = (img.astype(np.float32) * (1 - m) + cor * m).astype(np.uint8)
 
 
 def ampliacao(H):
@@ -216,15 +300,6 @@ def _linhas(img, lin, e):
     # espessura em PERSPETIVA: larga perto do carro, fina ao longe (como a tinta no chão).
     # As 'outras' linhas (das faixas vizinhas) não se desenham: piscam e enchem a imagem.
     esp = (max(1.5, 1.2 * e), max(4.0, 9.0 * e), y_h)
-    visivel = lambda sg: sg and (sg.get("tipo") != "tracejada" or sg.get("tracos") is None
-                                 or bool(sg.get("tracos")))
-    if visivel(esq) and visivel(dir_):               # faixa do carro, só entre linhas que se veem
-        poli = np.array(esq["pts"] + dir_["pts"][::-1], np.int32)
-        camada = img.copy()
-        cv2.fillPoly(camada, [poli], VERDE_FAIXA, cv2.LINE_AA)
-        conf = min(float(esq.get("confianca", 1.0)), float(dir_.get("confianca", 1.0)))
-        a = 0.20 * max(conf, 0.3)
-        cv2.addWeighted(camada, a, img, 1 - a, 0, dst=img)
     for seg, cor in ((esq, LINHA_ESQ), (dir_, LINHA_DIR)):
         if seg and _desenha_linha(img, seg, cor, esp):
             u, v = seg["pts"][-1]                      # ponto mais perto do carro
@@ -398,12 +473,23 @@ def _objetos(img, res, seg, ttc_risco, e):
             cor = VERMELHO
         # caixas pequenas (longe) sem rótulo, a não ser que importem
         importante = risco or e_seguidor or grupo in ("peoes", "duas_rodas", "sinais")
-        etiqueta = "  ".join(partes) if (bb[3] >= 0.06 * H or importante) else ""
+        # FOCO: veículos fora das faixas que interessam (estacionados ao lado da via,
+        # do outro lado) ou muito longe ficam discretos, sem rótulo
+        faixa = _get(gr, "faixa", i)
+        vrel = _get(gr, "vrel", i)
+        secundario = (grupo == "veic" and not importante and
+                      (faixa == "fora" or (d is not None and d > 45) or
+                       (vrel is not None and vrel < -1.5)))     # a afastar-se: não é ameaça
+        etiqueta = "" if secundario else (
+            "  ".join(partes) if (bb[3] >= 0.06 * H or importante) else "")
         caixas.append((bb, cor, etiqueta, risco or e_seguidor,
-                       bool(_get(gr, "previsto", i, False))))
-    for bb, cor, etiqueta, grossa, previsto in caixas:     # caixas primeiro, rótulos por cima
-        _caixa(img, bb, cor, "", fs, grossa=grossa, tenue=previsto)
-    for bb, cor, etiqueta, grossa, previsto in caixas:
+                       bool(_get(gr, "previsto", i, False)), secundario))
+    for bb, cor, etiqueta, grossa, previsto, secundario in caixas:   # caixas, rótulos por cima
+        if secundario:
+            _caixa_discreta(img, bb, cor)
+        else:
+            _caixa(img, bb, cor, "", fs, grossa=grossa, tenue=previsto)
+    for bb, cor, etiqueta, grossa, previsto, secundario in caixas:
         if etiqueta:
             x, y, w, h = bb
             _rotulo(img, etiqueta, (int(x), int(y) - 3), cor, fs, centrado=False,
@@ -431,6 +517,17 @@ def _caixa(img, bb, cor, etiqueta, fs, grossa=False, tenue=False):
         cv2.addWeighted(alvo, 0.5, img, 0.5, 0, dst=img)
     if etiqueta:
         _rotulo(img, etiqueta, (x, y - 2), cor, fs, centrado=False)
+
+
+def _caixa_discreta(img, bb, cor):
+    """Só os cantos, finos e meio transparentes (veículo que não interessa agora)."""
+    x, y, w, h = [int(round(v)) for v in bb]
+    camada = img.copy()
+    c = max(5, min(w, h) // 5)
+    for (px, py, dx, dy) in ((x, y, 1, 1), (x + w, y, -1, 1), (x, y + h, 1, -1), (x + w, y + h, -1, -1)):
+        cv2.line(camada, (px, py), (px + dx * c, py), cor, 2, cv2.LINE_AA)
+        cv2.line(camada, (px, py), (px, py + dy * c), cor, 2, cv2.LINE_AA)
+    cv2.addWeighted(camada, 0.45, img, 0.55, 0, dst=img)
 
 
 def _marcador_seguidor(img, bb, cor, e):
@@ -617,76 +714,139 @@ def _avisos(img, alertas, e):
     perigo = any(n == "perigo" for n, _ in alertas)
     if perigo:                                         # moldura vermelha
         cv2.rectangle(img, (0, 0), (W - 1, H - 1), VERMELHO, max(4, int(6 * e)))
-    tam = _px(0.62 * e)
+    # no espaço livre ENTRE o painel (esq.) e a vista de cima (dir.), para não os tapar
+    k = max(e, 0.72)
+    esq_livre, dir_livre = int(364 * k), W - int(254 * k)
+    if dir_livre - esq_livre < 0.3 * W:                # imagem estreita: centrado
+        esq_livre, dir_livre = 0, W
+    tam = _px(0.58 * e)
     f = _fonte(tam, True)
     y = int(14 * e)
     for nivel, txt in alertas[:3]:
         cor = VERMELHO if nivel == "perigo" else AMBAR
         txt = "! " + str(txt)
         tw, th = int(f.getlength(txt)), f.getmetrics()[0]
-        x = (W - tw) // 2
+        x = (esq_livre + dir_livre - tw) // 2
+        x = max(12, min(x, W - tw - 12))
         _caixa_translucida(img, x - 12, y, x + tw + 12, y + th + int(14 * e), cor, 0.88)
         _pil_texto(img, txt, x, y + th + int(5 * e), BRANCO, tam, negrito=True)
         y += th + int(20 * e)
 
 
 # ================================ vista de cima ================================
-def _vista_de_cima(img, frame, lin, res, e):
-    """Mini vista de cima (bird's-eye) com as linhas e os objetos."""
-    from .linhas import geometria
+def _radar(img, res, seg, lin, e):
+    """Vista de cima ESQUEMÁTICA (canto superior direito), no estilo do painel: o nosso
+    carro em baixo, a estrada para trás até 40 m, as linhas (e a divisória estimada), a faixa
+    do carro e os agentes à escala, com a cor do grupo (o seguidor com a cor do estado; a
+    vermelho se há risco). Esquerda/direita como na imagem da câmara."""
+    from PIL import Image, ImageDraw
+    from .linhas import geometria, lateral_da_linha
     try:
-        g, mx, my, _ = geometria(tuple(lin["chave"]))
+        g = geometria(tuple(lin["chave"]))[0]
     except Exception:
         return
-    bev = cv2.remap(frame, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-    bh, bw = bev.shape[:2]
-    for m in lin.get("marcacoes", []):
-        r0, r1, c0, c1 = m["bev"]
-        cv2.rectangle(bev, (c0, r0), (c1, r1), CIANO if m["tipo"] == "passadeira" else VERMELHO, 2)
-    for o in lin.get("outras", []):
-        _curva_bev(bev, o, BRANCO, 1)
-    for chave_lado, cor in (("esq", LINHA_ESQ), ("dir", LINHA_DIR)):
-        if lin.get(chave_lado):
-            _curva_bev(bev, lin[chave_lado], cor, 2)
-    if lin.get("divisoria") and not (lin.get("esq") or lin.get("dir")):
-        _curva_bev(bev, lin["divisoria"], DIVISORIA, 2)
-    # objetos no chão (retângulo com a pegada aproximada)
-    k = (bh - 1.0) / max(g["x_far"] - g["x_near"], 1e-6)
+    H, W = img.shape[:2]
+    k = max(e, 0.72)
+    pw, ph = int(230 * k), int(300 * k)
+    pad = int(12 * k)
+    topo = int(30 * k)                                  # espaço do título
+    alc, lado = 40.0, 6.0                               # m para trás, m para cada lado
+    ax0, ax1 = pad, pw - pad
+    ay0, ay1 = topo, ph - int(34 * k)                   # zona do desenho (ay1 = traseira do carro)
+    sx = (ax1 - ax0) / (2 * lado)
+    sy = (ay1 - ay0) / alc
+
+    def P(x, y):                                        # (m atrás, m à esq. da imagem) -> px
+        return ax0 + (lado - y) * sx, ay1 - x * sy
+
+    tela = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
+    db = ImageDraw.Draw(tela)
+    db.rounded_rectangle([0, 0, pw - 1, ph - 1], radius=int(12 * k), fill=(12, 12, 12, 245),
+                         outline=(255, 255, 255, 30))
+    db.rounded_rectangle([pw - int(4 * k) - 1, 0, pw - 1, ph - 1], radius=int(2 * k),
+                         fill=UA_VERDE + (255,))
+    camada = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))   # desenho por cima (misturado no fim)
+    d = ImageDraw.Draw(camada)
+    f_tit, f_pq = _fonte(int(11 * k), True), _fonte(int(10 * k))
+    d.text((pad, int(10 * k)), "VISTA DE CIMA", font=f_tit, fill=UA_VERDE)
+    # anéis de distância
+    for dist in (10, 20, 30, 40):
+        yy = P(dist, 0)[1]
+        for xx in range(int(ax0), int(ax1), int(8 * k)):
+            d.line([(xx, yy), (xx + int(4 * k), yy)], fill=(255, 255, 255, 38), width=1)
+        d.text((ax1 - int(2 * k), yy - int(2 * k)), f"{dist} m", font=f_pq, fill=(150, 150, 150, 200),
+               anchor="rb")
+    # linhas e faixa
+    xs = np.linspace(max(g["x_near"], 1.0), alc, 30)
+
+    def lat(sg):
+        return np.array([lateral_da_linha(sg, float(x), g) for x in xs])
+
+    esq, dir_, div = lin.get("esq"), lin.get("dir"), lin.get("divisoria")
+    L = float((seg or {}).get("larg_faixa") or 3.5)
+    bordas = None
+    if esq and dir_:
+        bordas = (lat(esq), lat(dir_))
+    elif esq:
+        y = lat(esq); bordas = (y, y - L)
+    elif dir_:
+        y = lat(dir_); bordas = (y + L, y)
+    elif div:
+        y = lat(div); bordas = (y + L, y)
+    if bordas is not None:
+        poli = [P(x, y) for x, y in zip(xs, bordas[0])] + [P(x, y) for x, y in zip(xs[::-1], bordas[1][::-1])]
+        d.polygon(poli, fill=(80, 220, 80, 70))
+    for sg, cor in ((esq, (235, 40, 40)), (dir_, (40, 200, 40))):
+        if not sg:
+            continue
+        pts = [P(x, y) for x, y in zip(xs, lat(sg))]
+        if sg.get("tipo") == "tracejada":
+            for i in range(0, len(pts) - 1, 2):
+                d.line([pts[i], pts[i + 1]], fill=cor + (255,), width=max(2, int(3 * k)))
+        else:
+            d.line(pts, fill=cor + (255,), width=max(2, int(3 * k)), joint="curve")
+    if div and not (esq or dir_):
+        d.line([P(x, y) for x, y in zip(xs, lat(div))], fill=(235, 235, 235, 170), width=max(2, int(2 * k)))
+    # agentes
+    seguidor = (seg or {}).get("seguidor") or {}
     for grupo, comp, larg in (("veic", 4.5, 1.8), ("duas_rodas", 2.0, 0.8), ("peoes", 0.6, 0.6)):
         gr = res.get(grupo) or {}
         for i in range(len(gr.get("bb", []))):
-            d, lat = _get(gr, "dist", i), _get(gr, "lat", i)
-            if d is None or lat is None:
+            dd, yy = _get(gr, "dist", i), _get(gr, "lat", i)
+            if dd is None or yy is None or not np.isfinite(dd) or abs(yy) > lado + 1:
                 continue
-            c = (g["lado"] - lat) * g["ppm"]
-            r = (g["x_far"] - d) * k
-            if not (-bw * 0.2 < c < bw * 1.2):
+            cor = P_GRUPO[grupo]
+            ttc = _get(gr, "ttc", i)
+            if seguidor.get("grupo") == grupo and seguidor.get("i") == i:
+                cor = P_ESTADO.get((seg or {}).get("estado_dist"), ("", cor))[1]
+            if ttc is not None and np.isfinite(ttc) and ttc <= 1.0:
+                cor = P_VERMELHO
+            if dd > alc:                                # mais longe: seta no topo
+                cx = P(0, yy)[0]
+                d.polygon([(cx, ay0 - int(6 * k)), (cx - int(5 * k), ay0 + int(2 * k)),
+                           (cx + int(5 * k), ay0 + int(2 * k))], fill=cor + (200,))
                 continue
-            cor = COR_GRUPO[grupo]
-            if r < 0:                                  # mais longe do que a vista: seta no topo
-                cc = int(min(max(c, 6), bw - 7))
-                cv2.fillPoly(bev, [np.array([[cc, 1], [cc - 6, 11], [cc + 6, 11]], np.int32)], cor)
-                continue
-            hw = larg / 2 * g["ppm"]
-            cv2.rectangle(bev, (int(c - hw), int(r - comp * k)), (int(c + hw), int(r)), cor, -1)
-            cv2.rectangle(bev, (int(c - hw), int(r - comp * k)), (int(c + hw), int(r)), PRETO, 1)
-    cv2.line(bev, (bw // 2, bh - 1), (bw // 2, bh - 12), AMARELO, 2)   # eixo da câmara
-    H, W = img.shape[:2]
-    alt = int(0.36 * H)
-    larg = int(alt * bw / bh)
-    mini = cv2.resize(bev, (larg, alt), interpolation=cv2.INTER_AREA)
-    x0, y0 = W - larg - 10, 10
-    img[y0:y0 + alt, x0:x0 + larg] = mini
-    cv2.rectangle(img, (x0 - 1, y0 - 1), (x0 + larg, y0 + alt), BRANCO, 1)
-    _texto(img, f"vista de cima  ~{g['x_far']:.0f} m", (x0 + 4, y0 + alt - 6), BRANCO, 0.4 * e)
-
-
-def _curva_bev(bev, seg, cor, esp):
-    bh = bev.shape[0]
-    rn = np.linspace(max(seg.get("rn_top", 0.0), 0.0), 1.0, 30)
-    col = np.polyval(seg["coef"], rn)
-    pts = np.stack([col, rn * (bh - 1)], 1).astype(np.int32)
-    cv2.polylines(bev, [pts], False, cor, esp, cv2.LINE_AA)
+            x0_, y0_ = P(dd + comp, yy + larg / 2)
+            x1_, y1_ = P(dd, yy - larg / 2)
+            secundario = grupo == "veic" and _get(gr, "faixa", i) == "fora"
+            d.rounded_rectangle([x0_, y0_, x1_, y1_], radius=max(2, int(3 * k)),
+                                fill=cor + ((110,) if secundario else (235,)))
+    # o nosso carro (visto de cima, traseira para cima)
+    cw, cl = 1.8 * sx, 4.4 * sy
+    cx, cy = (ax0 + ax1) / 2, ay1
+    d.rounded_rectangle([cx - cw / 2, cy, cx + cw / 2, cy + cl], radius=int(5 * k), fill=(235, 235, 235, 255))
+    d.rounded_rectangle([cx - cw / 2 + 2, cy + 0.12 * cl, cx + cw / 2 - 2, cy + 0.32 * cl],
+                        radius=int(2 * k), fill=(60, 60, 60, 255))
+    d.polygon([(cx, cy - int(5 * k)), (cx - int(5 * k), cy + int(1 * k)), (cx + int(5 * k), cy + int(1 * k))],
+              fill=UA_VERDE + (255,))                  # a câmara (olha para trás = para cima)
+    tela.alpha_composite(camada)
+    x0, y0 = W - pw - int(12 * k), int(12 * k)
+    x1, y1 = min(W, x0 + pw), min(H, y0 + ph)
+    rgba = np.asarray(tela)[: y1 - y0, : x1 - x0].astype(np.float32)
+    a = rgba[:, :, 3:4] / 255.0
+    roi = img[y0:y1, x0:x1].astype(np.float32)
+    roi[:] = roi * (1 - a) + rgba[:, :, 2::-1] * a
+    img[y0:y1, x0:x1] = roi.astype(np.uint8)
 
 
 # ================================ sinais vistos ================================
