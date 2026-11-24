@@ -37,3 +37,6 @@ va_datasets/sinais_pt/sintetico/
 va_datasets/gtsrb_cls/
 va_datasets/gtsdb_yolo_categorias/
 va_datasets/argoverse/
+
+# Relatório e apresentação da entrega: só locais (não vão para o GitHub)
+entrega/

@@ -68,6 +68,7 @@ def desenhar(frame, res, ttc_risco=1.0, lim_veic=0.5, vista_cima=True, estaciona
     # Vídeos pequenos (ex. 640x480): anota-se a imagem AMPLIADA, para o texto e o painel
     # ficarem nítidos quando se vê o vídeo em ecrã inteiro (desenhar pequeno e o leitor
     # esticar dá letra esborratada). As coordenadas do res são ampliadas na mesma medida.
+    res = _com_estabilizadas(res)
     f = ampliacao(frame.shape[0])
     if f > 1:
         out = _realcar(cv2.resize(frame, None, fx=f, fy=f, interpolation=cv2.INTER_CUBIC))
@@ -90,6 +91,25 @@ def desenhar(frame, res, ttc_risco=1.0, lim_veic=0.5, vista_cima=True, estaciona
     if vista_cima and lin and lin.get("chave"):
         _radar(out, res, seg, lin, e)
     _tira_sinais(out, res.get("sinais_vistos", []), e)
+    return out
+
+
+def _com_estabilizadas(res):
+    """Desenha as caixas ESTABILIZADAS (res['estab'], de estabilizar.py) quando existem;
+    o seguidor (veículo atrás) passa a apontar para a caixa estabilizada correspondente."""
+    est = res.get("estab")
+    if not est:
+        return res
+    out = dict(res)
+    out.update(est)
+    seg = res.get("seg") or {}
+    s = seg.get("seguidor")
+    if s and s.get("grupo") in est:
+        ib = est[s["grupo"]].get("i_bruto", [])
+        if s.get("i") in ib:
+            out["seg"] = dict(seg, seguidor=dict(s, i=ib.index(s["i"])))
+        else:
+            out["seg"] = dict(seg, seguidor=dict(s, i=-1))
     return out
 
 
@@ -821,7 +841,7 @@ def _radar(img, res, seg, lin, e):
                 cor = P_ESTADO.get((seg or {}).get("estado_dist"), ("", cor))[1]
             if ttc is not None and np.isfinite(ttc) and ttc <= 1.0:
                 cor = P_VERMELHO
-            if dd > alc:                                # mais longe: seta no topo
+            if dd + comp > alc:                         # mais longe: seta no topo
                 cx = P(0, yy)[0]
                 d.polygon([(cx, ay0 - int(6 * k)), (cx - int(5 * k), ay0 + int(2 * k)),
                            (cx + int(5 * k), ay0 + int(2 * k))], fill=cor + (200,))

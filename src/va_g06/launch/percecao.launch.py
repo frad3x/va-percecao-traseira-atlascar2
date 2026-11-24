@@ -1,6 +1,6 @@
 """
-Perceção (+ grelha local) e reação, no namespace do grupo (/g06). É o serviço
-'percecao' do compose: a câmara (real, simulada ou um bag) publica noutro sítio.
+Perceção (+ grelha local), visualização e reação, no namespace do grupo (/g06). É o
+serviço 'percecao' do compose: a câmara (real, simulada ou um bag) publica noutro sítio.
 
   ros2 launch va_g06 percecao.launch.py
   ros2 launch va_g06 percecao.launch.py modelo:=yolo11n.pt imgsz:=640 rviz:=true
@@ -33,6 +33,9 @@ def generate_launch_description():
                                "imgsz": ParameterValue(LaunchConfiguration("imgsz"), value_type=int),
                                "dispositivo": ParameterValue(LaunchConfiguration("dispositivo"), value_type=str),
                                "use_sim_time": LaunchConfiguration("use_sim_time")}],
+             output="screen", emulate_tty=True),
+        Node(package="va_g06", executable="visualizador", name="visualizador", namespace=ns,
+             parameters=[cfg, {"use_sim_time": LaunchConfiguration("use_sim_time")}],
              output="screen", emulate_tty=True),
         Node(package="va_g06", executable="reacao", name="reacao", namespace=ns,
              parameters=[cfg, {"use_sim_time": LaunchConfiguration("use_sim_time")}],

@@ -26,6 +26,7 @@ setup(
         "console_scripts": [
             "percecao = va_g06.no_percecao:main",
             "reacao = va_g06.no_reacao:main",
+            "visualizador = va_g06.no_visualizador:main",
             "camara_simulada = va_g06.camara_simulada:main",
         ],
     },

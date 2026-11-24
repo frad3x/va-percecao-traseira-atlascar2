@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-main.py — Perceção com câmara traseira (ATLASCAR2 / Tema 2). Versão SÓ Python.
+main.py — aplicação fora de linha da perceção traseira do ATLASCAR2 (Projeto 2).
 
 Basta dar Run (ou: python main.py). Faz, numa só passagem sobre a fonte:
   - deteção + rastreio (YOLO) de veículos / duas rodas / peões / sinais
   - marcações no pavimento: linhas da faixa (+ tipo), passadeiras, linhas de paragem
-  - sinais (modelos treinados, 43 tipos; ou clássico cor + forma)
+  - sinais (modelos treinados: 43 tipos GTSRB + 159 sinais portugueses; ou clássico cor + forma)
   - tempo-para-colisão (TTC) dos veículos que seguem atrás
   - distância (monocular) a cada objeto e AVISOS: distância de segurança,
     mudança de faixa (faixa ao lado livre? linha contínua?), ângulo morto,

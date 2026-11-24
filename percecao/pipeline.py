@@ -23,7 +23,7 @@ class Config:
     imgsz: int = 1280
     conf: float = 0.25
     usar_track: bool = True          # ByteTrack (IDs estáveis) — preciso para o TTC
-    estabilizar: bool = True         # caixas suavizadas/confirmadas no tempo (estabilizar.py)
+    estabilizar: bool = True         # caixas suavizadas no tempo PARA O DESENHO (estabilizar.py)
     linhas: bool = True
     linhas_params: dict = field(default_factory=dict)
     sinais_det: str = "modelos/sinais_det.pt"
@@ -80,8 +80,6 @@ class Pipeline:
             res["sinais"] = msinais.combinar(res["sinais"], self.rec_sinais.detetar(frame))
         elif cfg.sinais_classico:
             res["sinais"] = msinais.combinar(res["sinais"], msinais.detetar(frame))
-        if self.estab is not None:
-            self.estab.atualizar(res)
         if self.det_linhas is not None:
             # as caixas dos agentes não são linhas
             res["linhas"] = self.det_linhas.detetar(
@@ -95,6 +93,8 @@ class Pipeline:
         if self.seguranca is not None:
             self.seguranca.analisar(frame.shape, res, t)
         res["sinais_vistos"] = self.memoria_sinais.atualizar(frame, res["sinais"], t)
+        if self.estab is not None:            # só para o desenho (os dados ficam medidos)
+            res["estab"] = self.estab.atualizar(res)
         res["t"] = t
         return res
 

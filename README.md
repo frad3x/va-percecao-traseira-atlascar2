@@ -1,425 +1,309 @@
-# VA 2026/2027 · Grupo 06 · Perceção visual traseira do ATLASCAR2
+# Perceção visual traseira do ATLASCAR2
 
-Câmara traseira Orbbec Astra Pro no ATLASCAR2: deteção e seguimento de veículos, duas rodas e
-peões, linhas da faixa e marcações, sinais portugueses, distância e tempo até à colisão,
-avisos de segurança, **grelha de ocupação local** atrás do carro e planeamento local (A*) para
-avaliar a mudança de faixa.
+**Veículos Autónomos 2026/2027 · Grupo 06** — João Tomás (119137) · Tomás Frade (113507)
 
-![Demonstração](docs/img/demo.gif)
+Perceção com a câmara traseira (Orbbec Astra Pro) do ATLASCAR2: deteção e seguimento de veículos,
+duas rodas e peões; linhas da faixa, passadeiras e linhas de paragem; sinais de trânsito
+portugueses; distância e tempo até à colisão; avisos de segurança; grelha de ocupação local atrás
+do carro e planeamento local (A*) para avaliar a mudança de faixa. Em ROS 2 e Docker, com uma
+aplicação para analisar as gravações fora de linha.
 
-📄 **Plano de projeto (PDF):** [`docs/plano_de_projeto_G6.pdf`](docs/plano_de_projeto_G6.pdf)
+![Volta real com o ATLASCAR2](docs/img/desenho_volta_real.jpg)
 
 | | |
 |---|---|
 | **Sensor** | Orbbec Astra Pro (RGB-D), USB; cor 1280×720 a 15 fps (`usb_cam`), profundidade pelo driver Orbbec |
-| **Posição no carro** | `camera_tras_link`, traseira, a olhar para trás: x = −0,50 m, y = 0, z ≈ 1,75 m (altura medida), yaw = π em relação ao `base_link` (x e a inclinação ainda provisórios, no `.env`) |
-| **Driver ROS 2** | `ros-jazzy-usb-cam` (cor); `OrbbecSDK_ROS2` (profundidade, imagem `Dockerfile.rgbd`) |
-| **Saídas** | `/g06/grelha_local`, `/g06/caminho_local`, `/g06/estado`, `/g06/zona_proibida`, `/g06/percecao/*`, `/g06/reacao/*` |
-| **Equipa** | João Tomás (119137), Tomás Frade (113507) |
+| **Posição no carro** | `camera_tras_link`, traseira, a olhar para trás: x = −0,50 m, y = 0, z ≈ 1,75 m, yaw = π em relação ao `base_link` (valores no `.env`) |
+| **Driver ROS 2** | `ros-jazzy-usb-cam` (cor); `OrbbecSDK_ROS2` (profundidade, `Dockerfile.rgbd`) |
+| **Saídas** | `/g06/grelha_local`, `/g06/percecao/*`, `/g06/visualizacao/*`, `/g06/reacao/*`, `/g06/caminho_local`, `/g06/estado` |
+| **Documentos** | [Plano de projeto](docs/plano_de_projeto_G6.pdf) |
+
+**Conteúdo:** [Arquitetura](#arquitetura) · [Como correr](#como-correr) · [Dados](#dados) ·
+[Resultados](#resultados) · [Métodos](#métodos) · [Aplicação fora de linha](#aplicação-fora-de-linha) ·
+[Estrutura do repositório](#estrutura-do-repositório) · [Limitações](#limitações-e-trabalho-futuro)
 
 ## Arquitetura
 
 ```
-câmara (real | simulada | bag) --image_raw/compressed--> percecao --grelha_local--> planeador (A*)
-          + URDF (/tf_static)                              |  \--percecao/seguranca, agentes--> reacao
-                                                           +--> imagem anotada, marcadores (rviz/Foxglove)
+câmara (real | simulada | bag) --image_raw/compressed--> percecao --grelha_local--> local_astar (A*)
+          + URDF (/tf_static)          |                    |  \--percecao/seguranca, agentes--> reacao
+                                       |                    |
+                                       +--> visualizador <--+  percecao/agentes, pavimento, seguranca
+                                              \--> visualizacao/imagem_anotada, marcadores (RViz / Foxglove)
 ```
 
-| Serviço (compose) | Nó | Subscreve | Publica |
+O **processamento está separado da visualização**: o nó `percecao` só processa e publica dados; o
+nó `visualizador` subscreve a câmara e esses dados, junta as mensagens da mesma imagem pelo
+carimbo de tempo e desenha (`va_g06/reconstrucao.py` converte as mensagens no formato do
+desenho). O núcleo de processamento (`percecao/pipeline.py`) é o mesmo no ROS 2 e na aplicação
+fora de linha.
+
+| Serviço (compose) | Nós | Subscreve | Publica |
 |---|---|---|---|
-| `camera` (profile `sensor`) | `usb_cam` + `robot_state_publisher` | — | `/atlascar2/camera_tras/image_raw/compressed` (sensor_msgs/CompressedImage), `/atlascar2/camera_tras/camera_info`, `/tf_static` |
-| `simulador` (profile `simulado`) | `camara_simulada` + `robot_state_publisher` | — | os mesmos tópicos da câmara real (vídeo de `data/` ou estrada sintética) |
-| `reprodutor` (profile `reproduzir`) | `ros2 bag play` | — | os tópicos do bag (`TOPICOS` no `.env`) |
-| `percecao` | `percecao`, `reacao` (pacote `va_g06`) | `/atlascar2/camera_tras/image_raw/compressed`, `/tf_static`, `/atlascar2/velocidade`, `/atlascar2/pisca`, `/atlascar2/marcha_atras` | `/g06/grelha_local` (nav_msgs/OccupancyGrid) e os tópicos da tabela seguinte |
-| `planeador` | `local_astar` (`va_planeamento`, comum) | `/g06/grelha_local` | `/g06/caminho_local` (nav_msgs/Path), `/g06/estado` (std_msgs/String), `/g06/zona_proibida` |
+| `camera` (perfil `sensor`) | `usb_cam`, `robot_state_publisher` | — | `/atlascar2/camera_tras/image_raw/compressed`, `/atlascar2/camera_tras/camera_info`, `/tf_static` |
+| `simulador` (perfil `simulado`) | `camara_simulada`, `robot_state_publisher` | — | os mesmos tópicos da câmara (vídeo de `data/` ou estrada sintética) |
+| `reprodutor` (perfil `reproduzir`) | `ros2 bag play` | — | os tópicos do bag (`TOPICOS` no `.env`) |
+| `percecao` | `percecao`, `visualizador`, `reacao` (`va_g06`) | imagem da câmara, `/tf_static`, `/atlascar2/velocidade`, `/atlascar2/pisca`, `/atlascar2/marcha_atras` | tabela seguinte |
+| `planeador` | `local_astar` (`va_planeamento`, comum) | `/g06/grelha_local` | `/g06/caminho_local`, `/g06/estado`, `/g06/zona_proibida` |
 
 ### Tópicos
 
-| Tópico | Tipo | frame_id | Frequência | Conteúdo |
-|---|---|---|---|---|
-| `/atlascar2/camera_tras/image_raw/compressed` | sensor_msgs/CompressedImage | `camera_tras_optical_frame` | 15 Hz | imagem da câmara (é a que se grava) |
-| `/g06/grelha_local` | nav_msgs/OccupancyGrid | `base_link` | a do processamento | grelha atrás do carro (ver abaixo) |
-| `/g06/percecao/agentes` | va_percecao_msgs/Agentes | `camera_tras_optical_frame` | idem | veículos, duas rodas, peões e sinais: ID, distância, faixa (lado do carro), TTC |
-| `/g06/percecao/deteccoes` | vision_msgs/Detection2DArray | idem | idem | as mesmas caixas em tipos normalizados |
-| `/g06/percecao/pavimento` | va_percecao_msgs/Pavimento | idem | idem | linhas da faixa + tipo, passadeiras, linhas de paragem |
-| `/g06/percecao/seguranca` | va_percecao_msgs/EstadoSeguranca | idem | idem | veículo atrás (distância, TTC), mudar de faixa, espaço livre, avisos |
-| `/g06/percecao/marcadores` | visualization_msgs/MarkerArray | `camera_tras_link` | idem | agentes em 3D (rviz/Foxglove) |
-| `/g06/percecao/imagem_anotada/compressed` | sensor_msgs/CompressedImage | `camera_tras_optical_frame` | idem (só se alguém subscrever) | imagem com o painel e as caixas |
-| `/g06/reacao/acao` | va_percecao_msgs/Acao | idem | idem | nível + comandos (`LIGAR_QUATRO_PISCAS`, `NAO_MUDAR_ESQUERDA`, `PARAR_MARCHA_ATRAS`, …) |
-| `/g06/reacao/aviso` | std_msgs/String | — | quando muda | texto para o condutor |
+| Tópico | Tipo | frame_id | Conteúdo |
+|---|---|---|---|
+| `/atlascar2/camera_tras/image_raw/compressed` | sensor_msgs/CompressedImage | `camera_tras_optical_frame` | imagem da câmara, 15 Hz (é a que se grava) |
+| `/g06/grelha_local` | nav_msgs/OccupancyGrid | `base_link` | grelha de ocupação atrás do carro |
+| `/g06/percecao/agentes` | va_percecao_msgs/Agentes | `camera_tras_optical_frame` | veículos, duas rodas, peões e sinais: ID, distância, faixa (lado do carro), TTC |
+| `/g06/percecao/deteccoes` | vision_msgs/Detection2DArray | idem | as mesmas caixas em tipos normalizados |
+| `/g06/percecao/pavimento` | va_percecao_msgs/Pavimento | idem | linhas da faixa e tipo (com os traços reais das tracejadas), divisória estimada, passadeiras, linhas de paragem |
+| `/g06/percecao/seguranca` | va_percecao_msgs/EstadoSeguranca | idem | veículo atrás (distância, TTC), mudança de faixa, espaço livre, avisos |
+| `/g06/visualizacao/imagem_anotada/compressed` | sensor_msgs/CompressedImage | idem | imagem com o painel, caixas, faixa e vista de topo (só se alguém subscrever) |
+| `/g06/visualizacao/marcadores` | visualization_msgs/MarkerArray | `camera_tras_link` | agentes em 3D |
+| `/g06/reacao/acao` | va_percecao_msgs/Acao | idem | nível e comandos (`LIGAR_QUATRO_PISCAS`, `NAO_MUDAR_ESQUERDA`, `PARAR_MARCHA_ATRAS`, …) |
+| `/g06/reacao/aviso` | std_msgs/String | — | texto para o condutor (quando muda) |
 
-O driver publica com QoS *best effort* (sensor data) e o nó de perceção subscreve com o mesmo
-perfil. A perceção trata sempre a imagem **mais recente**: se o modelo for mais lento do que a
-câmara, salta imagens em vez de acumular atraso.
+O driver publica com QoS *best effort* e a perceção subscreve com o mesmo perfil. A perceção trata
+sempre a imagem **mais recente**: se o modelo for mais lento do que a câmara, salta imagens em vez
+de acumular atraso.
 
-### Grelha local (contrato da aula 10)
+### Grelha local
 
-`/g06/grelha_local`, no `base_link`, com o `header.stamp` da imagem que lhe deu origem;
-0,2 m por célula, **x de −35 a 5 m** (a câmara vê para trás), y de −10 a 10 m.
+`/g06/grelha_local`, no `base_link`, com o `header.stamp` da imagem que lhe deu origem; 0,2 m por
+célula, x de −35 a 5 m (a câmara vê para trás), y de −10 a 10 m.
 
-| Valor | O que é |
+| Valor | Significado |
 |---|---|
-| **100 ocupado** | veículos, duas rodas e peões como caixas no chão (distância e posição lateral pelo modelo monocular de chão plano); linhas **contínuas** (não se podem atravessar) |
-| **0 livre** | o chão visível: dentro do campo de visão (66°), desde a câmara até ao primeiro obstáculo ou 30 m; e o próprio carro + 3 m atrás dele |
-| **−1 desconhecido** | o que está escondido atrás de um veículo, fora do campo de visão, longe demais, ou à frente do carro |
+| **100** ocupado | veículos, duas rodas e peões como caixas no chão (pelo modelo monocular de chão plano); linhas contínuas |
+| **0** livre | chão visível dentro do campo de visão (66°), até ao primeiro obstáculo ou 30 m; o próprio carro e os 3 m atrás dele |
+| **−1** desconhecido | escondido atrás de um veículo, fora do campo de visão ou demasiado longe |
 
-A pose da câmara vem do `/tf_static` (URDF); sem TF (p. ex. um bag sem `/tf_static`) usa-se a
-pose por omissão do parâmetro `pose_camara_omissao`.
+A pose da câmara vem do `/tf_static` (URDF); sem TF usa-se o parâmetro `pose_camara_omissao`.
 
-**Planeador e mudança de faixa.** Para a câmara traseira, o objetivo local do planeador é a
-**faixa ao lado, 20 m atrás** (`objetivo_x: -20`, `objetivo_y: 3.5` = faixa da esquerda;
-−3,5 = direita, em `src/va_g06/config/params.yaml`) e o corredor é a estrada (a nossa faixa e as
-duas ao lado, |y| ≤ 5,25 m — sem isto o A* contornaria os carros pelo passeio, como na figura 2b
-da aula). O que a câmara não vê (escondido atrás de um carro, fora do campo de visão) **não conta
-como livre** (`desconhecido_livre: false`); só o próprio carro e os primeiros 3 m atrás dele (onde
-um veículo apareceria cortado no fundo da imagem) ficam livres, para o caminho poder partir. O A*
-comum procura a célula livre mais
-próxima do objetivo: se o caminho **chega** à faixa pedida, a mudança é possível; se fica
-noutra célula (veículo nessa faixa) ou o estado é `BLOQUEADO`, a mudança é insegura. (O estado
-`DESVIO` aparece mesmo com a faixa livre, porque o caminho até um objetivo na diagonal é em
-"escada" — o que conta é onde o caminho termina.) O nó de perceção publica também a decisão
-direta em `/g06/percecao/seguranca` (`mudar_esquerda` / `mudar_direita`: livre, ocupado ou
-proibido por linha contínua).
+**Mudança de faixa.** O objetivo do planeador comum é a faixa ao lado, 20 m atrás do carro
+(`objetivo_x: -20`, `objetivo_y: 3.5` para a esquerda; −3,5 para a direita), num corredor limitado
+à estrada (|y| ≤ 5,25 m). O que a câmara não vê não conta como livre (`desconhecido_livre: false`).
+Se o caminho chega à faixa pedida, a mudança é possível; se não chega ou o estado é `BLOQUEADO`, é
+insegura. A perceção publica também a decisão direta em `/g06/percecao/seguranca`
+(`mudar_esquerda` / `mudar_direita`: livre, ocupado ou proibido por linha contínua).
 
 ## Como correr
 
-Requisitos: Docker (Ubuntu 24.04 com Docker Engine; Windows com Docker Desktop, sem sensores).
+Requisitos: Docker (Ubuntu 24.04 com Docker Engine, ou Windows com Docker Desktop, sem sensores) e
+Git LFS (modelos treinados).
 
 ```bash
-git clone https://github.com/frad3x/va-percecao-traseira-atlascar2 && cd va-percecao-traseira-atlascar2
+git clone https://github.com/frad3x/va-percecao-traseira-atlascar2
+cd va-percecao-traseira-atlascar2
+git lfs pull --include="modelos/*"
 docker compose build
-docker compose --profile simulado up                        # sem sensor: câmara simulada
-BAG=<pasta_em_data> docker compose --profile reproduzir up  # com um bag gravado
+docker compose --profile simulado up                        # sem câmara: câmara simulada
 docker compose --profile sensor up                          # com a câmara ligada (Linux)
+BAG=<pasta_em_data> docker compose --profile reproduzir up  # com um bag gravado
 ```
 
-- **Windows** (PowerShell): `$env:COMPOSE_FILE = "compose.windows.yaml"` antes dos comandos acima.
-- **Visualização**: `--profile foxglove` e, no Lichtblick/Foxglove, `ws://localhost:8765`
-  (painel 3D com *Display frame* `base_link`: `/g06/grelha_local`, `/g06/zona_proibida`,
-  `/g06/caminho_local`, `/g06/percecao/marcadores`; painel Image com
-  `/g06/percecao/imagem_anotada/compressed`). Em Linux também `--profile rviz`.
-- **Gravar** câmara + resultados em `data/`: juntar `--profile gravar` (nome `g06_camtras_<data>_<PERCURSO>`).
-- **Câmara simulada com um vídeo**: `VIDEO_SIM=/data/videos_teste/<vídeo>.mp4` no `.env`; para um
-  vídeo gravado lado a lado (RGB | profundidade) também `METADE_SIM=esquerda`.
-- **GPU NVIDIA**: `docker compose -f compose.yaml -f compose.gpu.yaml ...` e, no `.env`,
-  `MODELO=modelos/yolo11m.pt`, `IMGSZ=1280`.
-- **Ver os valores ao vivo**: `docker compose exec percecao bash` e, lá dentro,
-  `ros2 topic echo /g06/percecao/seguranca`, `ros2 topic echo /g06/estado`,
-  `ros2 topic hz /g06/grelha_local`.
-- **Desenvolver sem reconstruir**: abrir no VS Code com *Dev Containers* (pasta `.devcontainer/`),
-  `colcon build --symlink-install` e lançar os nós à mão.
+- **Visualização:** `--profile foxglove` e, no Foxglove/Lichtblick, `ws://localhost:8765` (painel 3D
+  com *Display frame* `base_link`: `/g06/grelha_local`, `/g06/caminho_local`,
+  `/g06/visualizacao/marcadores`; painel Image: `/g06/visualizacao/imagem_anotada/compressed`).
+  Em Linux também `--profile rviz`.
+- **Gravar** a câmara e os resultados em `data/`: juntar `--profile gravar`.
+- **Câmara simulada com um vídeo:** `VIDEO_SIM=/data/<vídeo>.mp4` no `.env`; para um vídeo lado a
+  lado (cor | profundidade) também `METADE_SIM=esquerda`.
+- **GPU NVIDIA:** `docker compose -f compose.yaml -f compose.gpu.yaml ...`; sem GPU, no `.env`,
+  `MODELO=modelos/yolo11n.pt` e `IMGSZ=640`.
+- **Windows** (PowerShell): `$env:COMPOSE_FILE = "compose.windows.yaml"` antes dos comandos.
+- **Valores ao vivo:** `docker compose exec percecao bash` e `ros2 topic echo /g06/percecao/seguranca`.
+- **Desenvolvimento:** VS Code com *Dev Containers* (`.devcontainer/`), `colcon build --symlink-install`.
 
-**Parâmetros que dependem do carro** (todos no `.env` ou em `src/va_g06/config/`):
-- `video_device` e `pixel_format` em `src/va_g06/config/usb_cam.yaml` (descobrir com
-  `v4l2-ctl --list-devices`; se não houver imagem, `pixel_format: yuyv` com 640×480);
-- pose da câmara `CAM_X … CAM_YAW` no `.env` (vai para o URDF e para a grelha);
-- `altura_camara` em `params.yaml` (= `CAM_Z`; dá a escala das distâncias);
-- intrínsecos em `src/va_g06/config/camera_info.yaml` (opcionais: a perceção não precisa de
-  calibração; servem para projetar outros sensores na imagem na parte 2). Calibrar com
-  `ros2 run camera_calibration cameracalibrator --size 8x6 --square 0.025 --ros-args -r image:=/atlascar2/camera_tras/image_raw -r camera:=/atlascar2/camera_tras`.
+**Parâmetros que dependem do carro** (`.env` e `src/va_g06/config/`):
+- `video_device` e `pixel_format` em `usb_cam.yaml` (`v4l2-ctl --list-devices`; sem imagem,
+  `pixel_format: yuyv` com 640×480);
+- pose da câmara `CAM_X … CAM_YAW` no `.env` (URDF e grelha) e `altura_camara` em `params.yaml`
+  (escala das distâncias);
+- intrínsecos em `camera_info.yaml` (opcionais; a perceção não precisa de calibração).
 
-**Profundidade (RGB-D).** A cor sai pelo `usb_cam`; a profundidade da Astra Pro só pelo driver
-Orbbec, compilado numa imagem à parte: `docker compose --profile rgbd build camera_rgbd` e
-`docker compose --profile rgbd up camera_rgbd` (pacote/launch do driver ajustáveis com
-`ORBBEC_PKG` / `ORBBEC_LAUNCH`). Converter a profundidade de um bag em nuvens de pontos:
+**Profundidade (RGB-D).** A profundidade da Astra Pro sai pelo driver Orbbec, numa imagem à parte:
+`docker compose --profile rgbd build camera_rgbd` e `docker compose --profile rgbd up camera_rgbd`.
+Converter a profundidade de um bag em nuvens de pontos:
 `python -m percecao.profundidade --fonte data/<bag> --saida_dir data/nuvens`.
 
 ## Dados
 
-| Gravação (em `data/`) | Data | Conteúdo | Duração |
-|---|---|---|---|
-| `passeio_20261120_091854/` | 20/11/2026 | **volta real com o carro**: `viagem_lado_a_lado.avi` (Orbbec RGB à esquerda, profundidade à direita, 1280×480, 30 fps) + `telemetria.csv` (instante de cada imagem) | 23 min (41 804 imagens) |
-| `g02_camtras_20261104_141343_percurso1/` | 04/11/2026 | bag MCAP de **teste** do código de aquisição (não é o percurso) | 2 158 imagens |
-| `g02_camtras_20261104_160818_percurso1/` | 04/11/2026 | idem | — |
-| `passeio_20261104_160353/` | 04/11/2026 | vídeo de **teste** lado a lado (RGB e profundidade) + `telemetria.csv` | 10 s (301 imagens) |
-| `videos_teste/` | — | vídeos de câmaras traseiras usados para desenvolver o processamento | — |
+| Gravação (em `data/`) | Data | Conteúdo |
+|---|---|---|
+| `passeio_20261120_091854/` | 20/11/2026 | **volta real com o ATLASCAR2**: 23 min, 41 804 imagens a 30 fps, cor e profundidade lado a lado (1280×480), e `telemetria.csv` (instante de cada imagem) |
+| `g02_camtras_20261104_*_percurso1/` | 04/11/2026 | bags MCAP de teste do sistema de aquisição |
+| `passeio_20261104_160353/` | 04/11/2026 | vídeo de teste lado a lado (10 s) |
+| `videos_teste/` | — | vídeos de câmaras traseiras usados no desenvolvimento |
 
-Os bags e os vídeos **não estão no GitHub** (`data/` está no `.gitignore`): ficam no SSD do
-grupo e no portátil; pedir aos autores.
+As gravações não estão no repositório (vários GB): ficam no disco do grupo.
 
 ## Resultados
 
-Volta real de 20/11/2026 (`data/passeio_20261120_091854`, metade RGB): **20 902 imagens** a
-15 fps (1 em cada 2 do vídeo de 30 fps, a taxa da câmara no carro), processadas a **13,2 imagens/s**
-numa RTX 5060 portátil com o modelo preciso (YOLO11m a 1280 px + 3 modelos de sinais + linhas).
-Figuras geradas com `python tools/figura_grelha.py data/passeio_20261120_091854/rgb_camara_traseira.mp4 --instantes 15128 15506 15700`.
+### Volta real de 20/11/2026
+
+20 902 imagens (a metade a cores, a 15 fps, a taxa da câmara no carro), analisadas com o pipeline
+completo. Figuras: `python tools/figura_grelha.py data/passeio_20261120_091854/rgb_camara_traseira.mp4 --instantes 15128 15506 15700`.
+
+| Grandeza | Valor |
+|---|---|
+| Imagens com as duas linhas da faixa / com pelo menos uma | 6 % / 43 % (ruas urbanas, muitas sem marcas) |
+| Veículos / peões / duas rodas por imagem (média) | 5,1 / 0,25 / 0,02 |
+| Veículo na nossa faixa atrás do carro | 41 % do tempo (31 % a distância segura, 10 % perto) |
+| Mudança de faixa possível (perceção): esquerda / direita | 62 % / 77 % |
+| Imagens com algum aviso | 35 % |
+| Sinais mais vistos | STOP, contornar pela direita (D3a), lomba (A2a), cedência de passagem (B1), trânsito proibido (C2), paragem e estacionamento proibidos (C16), limites de 50 e 60 km/h |
 
 ![Grelha local e A* em três instantes da volta real](docs/img/grelha_instantes.png)
-
-> Os valores desta tabela e dos gráficos são da análise da volta completa feita **antes** de
-> 23/11, com o horizonte estimado automaticamente (ver "Horizonte fixo" abaixo): as distâncias
-> estavam sobrestimadas e alguns carros ficavam sem distância.
-
-| Grandeza (volta real) | Valor |
-|---|---|
-| Imagens com as 2 linhas da faixa / com pelo menos 1 | 41% / 85% (cidade: marcas gastas, cruzamentos, carros estacionados) |
-| Veículos / peões / duas rodas por imagem (média) | 5,1 / 0,25 / 0,02 |
-| Veículos seguidos que se **afastam** da câmara | 96% (1 211 de 1 263) — coerente com uma câmara traseira em marcha |
-| Veículo atrás na nossa faixa | 16% do tempo (8% a distância segura, 8% perto); perigo (TTC ≤ 1 s) em 3% das imagens; TTC mínimo 0,3 s |
-| Mudança de faixa possível (perceção) | esquerda 68%, direita 80% do tempo |
-| Sinais reconhecidos (exemplos) | STOP, lomba (A2a), cedência (B1), trânsito proibido (C2), paragem e estacionamento proibidos (C16), limites 30/50/60, sentido proibido, rotunda, pista de velocípedes |
 
 ![Deteções por imagem](docs/img/volta_deteccoes.png)
 ![Distância ao veículo que segue atrás](docs/img/volta_distancia.png)
 
-**Erros vistos ao rever o vídeo anotado** (a contagem dos sinais não foi validada com anotação):
-um limite de **30** lido como 50 e um sinal de pista de **velocípedes** (D7a) lido como pista de
-motociclos (D5c) — com 640×480 os sinais têm poucos píxeis; os avisos de **ângulo morto**
-disparam muitas vezes com carros estacionados ao lado da via (33% das imagens com algum aviso).
+### Deteção de agentes
 
-### Teste das melhorias de 23/11 (3 primeiros e 3 últimos minutos da volta)
-Câmara a **1,75 m** de altura (medida). Painel e texto desenhados sobre a imagem ampliada para
-1280×960 com letra TrueType (antes: letra do OpenCV a 640×480, esborratada em ecrã inteiro);
-vídeo anotado em **H.264** (`imageio-ffmpeg`, CRF 18) em vez de MPEG-4 Part 2. O TTC só é
-mostrado se for ≤ 10 s e só é calculado depois de 3 medições seguidas com a caixa a crescer ≥ 5%/s.
-As linhas que deixam de ser vistas esbatem-se em vez de ficarem desenhadas com a mesma força.
+`tools/avaliar_volta.py` escolhe 150 imagens espalhadas pela volta e compara as deteções do sistema
+com uma **referência independente** (YOLO11x a 1280 px, confiança ≥ 0,5; objetos com ≥ 20 px de
+altura, IoU ≥ 0,5). Mede a concordância com esse modelo, não uma anotação manual: para isso,
+`python tools/anotar.py` (parte das caixas da referência) e depois
+`python tools/avaliar_volta.py <vídeo> --gt resultados/avaliacao_volta/gt_manual.json`.
 
-**Bermas deixam de ser linhas.** Uma linha pintada tem asfalto mais escuro dos *dois* lados;
-a borda de um passeio, de uma zona de estacionamento ou a diagonal das riscas de uma
-passadeira é clara de um lado. Exige-se agora `tinta − lado claro ≥ 6` e
-`(tinta − lado claro) ≥ 0,65·(tinta − lado escuro)` (lados a 0,2–0,5 m). Em ~1 200 candidatas
-revistas à mão nos dois troços, as rejeitadas eram bermas, calçada e passadeiras; perdeu-se
-1 linha verdadeira.
+| Grupo | Precisão | Recall | F1 |
+|---|---|---|---|
+| Veículos | 0,83 | 0,84 | 0,84 |
+| Peões | 0,86 | 0,74 | 0,79 |
+| Duas rodas (4 na referência; pouco representativo) | 1,00 | 0,25 | 0,40 |
 
-**Divisória estimada fora da nossa via.** Circula-se pela direita, logo a divisória fica à
-esquerda do carro (à direita na imagem da câmara traseira). Na volta real o "meio do asfalto"
-calhava quase sempre debaixo do carro (a segmentação para antes da berma do outro lado: asfalto
-de outra cor, sombras, carros); quando isso acontece (meio a menos de 1,2 m para a esquerda), a
-divisória passa a ficar **meia via (1,75 m) à esquerda do carro**, com a direção da estrada
-medida. Nestes troços isso aconteceu sempre — a posição lateral é, na prática, assumida e não
-medida. Com o carro em calçada (textura do chão na imagem > 15) não se estima divisória
-(saída da garagem: de 67% para 2% das imagens).
+As discordâncias concentram-se nas filas de carros estacionados, tapados uns pelos outros.
 
-| Troço (2 700 imagens a 15 fps cada) | 3 primeiros min | 3 últimos min |
-|---|---|---|
-| Imagens com linhas (antes → agora) | 68% → 33% | 45% → 3% |
-| Imagens com divisória estimada (antes → agora) | 11% → 10% | 26% → 48% |
-| Variação da linha entre imagens a 5 m (p90, antes → agora) | 0,068 → 0,032 m | 0,108 → 0,022 m |
-| Linha contínua desenhada sobre tinta | 88% → 90% | 62% → 64% |
-| Tremor vertical da câmara entre imagens (p90) | 1,4 px | 0,9 px |
-| Imagens com aviso | 7% | 39% |
+### Sinais (modelos treinados pelo grupo)
 
-A queda de "imagens com linhas" são as bermas e passadeiras que deixaram de contar: os últimos
-3 minutos são ruas quase sem tinta.
+| Modelo | Resultado |
+|---|---|
+| Detetor YOLO11s (GTSDB, 4 categorias) | precisão 0,97 · recall 0,99 · mAP50 0,991 |
+| Classificador YOLO11n-cls (GTSRB, 43 tipos) | 97,1 % top-1 |
+| Combinação GTSRB + 159 sinais portugueses | 93,9 % em 5 760 fotografias reais; reconhece ~115 sinais que o GTSRB não tem |
 
-**Estabilidade no tempo (o que se vê no vídeo).** Para o desenho não "saltar":
-- caixas suavizadas por objeto seguido (centro e tamanho), um objeto novo só aparece depois
-  de confirmado e um que falha até 3 imagens fica no sítio a esbater (`percecao/estabilizar.py`);
-  números de exibição pequenos em vez dos IDs do ByteTrack;
-- tipo da linha com histerese (só troca quando o outro tipo tem 70% das últimas 15 imagens);
-  linhas e divisória, uma vez confirmadas, esbatem em vez de piscar; extensão da linha suavizada;
-- distância por objeto suavizada (mais ao longe) e, ao longe (≥ 30 m), escrita de 5 em 5 m;
-  velocidade de aproximação pelo crescimento da caixa (d/TTC) ou, só até 25 m, pela variação
-  da distância em ~2 s; o TTC ignora caixas cortadas pela borda da imagem;
-- linhas desenhadas como fitas com a largura em perspetiva e contorno discreto; rótulos sem
-  sobreposição (prioridade aos mais perto) e caixas pequenas ao longe sem rótulo.
+### Estabilidade do desenho
 
-Medido com o pipeline completo (2 700 imagens em cada troço; antes → depois):
+Pipeline completo nos 3 primeiros e nos 3 últimos minutos da volta (2 700 imagens cada), sem e com
+a estabilização temporal (caixas, tipo e presença das linhas, divisória):
 
-| | 3 primeiros min | 3 últimos min |
+| Grandeza | 3 primeiros min | 3 últimos min |
 |---|---|---|
 | Tremor das caixas entre imagens (mediana, fração da altura) | 0,075 → 0,038 | 0,059 → 0,035 |
-| Caixas que aparecem por minuto (piscar) | 328 → 155 | 399 → 165 |
-| Trocas de tipo da linha por minuto | 7,7 → 3,3 | 1,0 → 0,7 |
-| Linha a aparecer/desaparecer por minuto | 11,7 → 5,7 | 5,3 → 1,7 |
-| Salto da divisória a 12 m (p90) | 0,25 → 0,14 m | 0,21 → 0,11 m |
+| Caixas que aparecem por minuto | 328 → 155 | 399 → 165 |
+| Trocas do tipo da linha por minuto | 7,7 → 2,7 | 1,0 → 1,0 |
+| Salto da divisória a 12 m (percentil 90) | 0,25 → 0,16 m | 0,21 → 0,11 m |
 
-Também se experimentou **compensar o tremor** (correlação de fase acima do horizonte) e um
-**filtro de Kalman** por linha: nos 3 últimos minutos ambos pioraram (alinhamento 0,65 e
-0,46–0,52 contra 0,71 da média exponencial no mesmo ensaio; p90 da variação 0,29–0,63 m com
-Kalman contra 0,11 m),
-por isso ficou a média exponencial. O tremor medido é pequeno (p90 ≤ 1,4 px), não é ele a causa
-principal das falhas das linhas (nestes troços há pouca tinta e muitas bordas de passeio).
+O tremor da câmara é pequeno (percentil 90 ≤ 1,4 px); a compensação do tremor e um filtro de Kalman
+por linha foram testados e pioravam o alinhamento das linhas com a tinta.
 
-Erros que ainda se veem nestes troços: alguns sinais falsos com confiança baixa (ex. STOP 0,51 num poste) e carros
-estacionados a disparar "veículo atrás" em manobras.
+## Métodos
 
-### Horizonte fixo e novo desenho (23/11, à tarde)
-**Horizonte.** O horizonte era estimado pelo ponto de fuga das retas da imagem; na volta real
-essas retas são sobretudo bermas, carros estacionados e edifícios, e a estimativa ficava em
-~250 px de 480, quando o ponto de fuga da estrada está a ~175 px (verificado em quatro troços
-diferentes da volta). Com a câmara fixa no carro o horizonte é praticamente constante, por isso
-passou a estar **fixo em 0,365 da altura nos vídeos 640×480 desta câmara**
-(`horizonte_conhecido` em `percecao/linhas.py`); os vídeos de outras câmaras (outras
-resoluções) continuam com o ponto de fuga automático. O valor foi medido na gravação a 640×480;
-para o fluxo a 1280×720 do `usb_cam` ainda está por medir (até lá, ponto de fuga ou
-`linhas_params: '{"horizonte": ...}'` no `params.yaml`). Efeitos vistos: o tracejado central passa a ser
-detetado até muito mais longe, a faixa do carro encaixa na via, carros que ficavam "acima do
-horizonte" passam a ter distância e as distâncias deixam de vir sobrestimadas (o autocarro que
-segue atrás aos 150 s: ~40 m antes, ~15 m agora, coerente com a imagem). A estrada sintética
-do nó `camara_simulada` usa o mesmo horizonte.
+### Modelo da câmara
 
-**Desenho.**
-- a **faixa do carro** é pintada no chão com um degradê que se apaga ao longe; com uma só
-  linha ou só com a divisória, a outra margem fica a uma largura de faixa (medida, ou 3,5 m) e
-  não é desenhada como linha;
-- a mini vista de cima (que era a imagem deformada, quase só asfalto cinzento) passou a ser um
-  **radar esquemático** no estilo do painel: o carro, a estrada até 40 m, as linhas, a faixa e
-  os agentes à escala (o seguidor com a cor do estado);
-- **foco**: veículos fora das faixas que interessam, a mais de 45 m ou a afastarem-se
-  (> 1,5 m/s) ficam só com os cantos, discretos e sem rótulo;
-- vídeos de 640×480: a imagem ampliada leva um realce suave (contraste local, cor e nitidez)
-  **só no que se mostra**; as deteções usam a imagem original.
-- os avisos no topo ficam no espaço entre o painel e a vista de cima (não os tapam).
+Pinhole de chão plano, sem padrão de calibração: o campo de visão (66°) e a altura (1,75 m) dão a
+escala, o horizonte a inclinação. Nos vídeos 640×480 desta câmara o horizonte é fixo (0,365 da
+altura, medido na volta real: a câmara está fixa no carro); nas outras resoluções é estimado pela
+mediana do ponto de fuga das retas da imagem (`horizonte_conhecido` em `percecao/linhas.py`).
 
-![Desenho na volta real](docs/img/desenho_volta_real.jpg)
-
-Medido de novo (pipeline completo, 2 700 imagens por troço), em relação à tabela anterior: a
-linha a 6 m salta menos (p90 0,034 → 0,025 m e 0,042 → 0,024 m), as caixas ficam iguais e,
-como passa a haver mais linhas detetadas, o aparecer/desaparecer das linhas nos 3 primeiros
-minutos sobe de 5,7 para 8,3 por minuto. As **imagens com aviso** sobem (7% → 21% e
-38% → 57%): com a distância certa, os carros estacionados ao lado e atrás (parque, saída da
-garagem) passam a estar perto e disparam "ângulo morto" e "veículo atrás"; continuam a não ser
-distinguidos dos que circulam.
-
-## Limitações e trabalho futuro
-
-- A distância é **monocular** (chão plano, horizonte fixo): serve para níveis de risco,
-  não para medir com precisão; depende de `altura_camara`, do horizonte e da pose da câmara.
-  Numa subida ou descida o horizonte real muda e a distância erra.
-- A volta real foi gravada como vídeo (não como bag ROS): falta repetir a recolha com o
-  `docker compose --profile sensor --profile gravar up` para ter o MCAP com `/tf_static`.
-- O classificador dos sinais portugueses foi treinado com imagens sintéticas: em fotografias
-  reais é mais fraco do que o GTSRB nos tipos comuns, por isso só decide nos sinais que o
-  GTSRB não conhece (ver "Sinais").
-- A grelha só cobre o que a câmara vê (atrás); a parte 2 junta-a às grelhas dos outros grupos.
-- Os avisos de ângulo morto ainda não distinguem carros **estacionados** de carros em movimento
-  (a velocidade relativa já é estimada; falta usá-la para ignorar os parados).
-- A volta real é a 640×480 (gravação lado a lado): com a câmara a 1280×720 os sinais ao longe
-  ficam com mais píxeis.
-
----
-
-# Aplicação off-line (Windows/Linux, sem ROS nem Docker)
-
-O mesmo núcleo de processamento (`percecao/pipeline.py`) corre fora do ROS, para analisar
-gravações: vídeo, pasta de imagens ou rosbag MCAP → player, CSV e gráficos.
-
-- **Janela**: duplo clique no atalho **"Perceção Traseira"** do ambiente de trabalho (ou
-  `python -m percecao.gui`). Arrastas a gravação, escolhes as opções e carregas em **Analisar**.
-  Criar o atalho noutro PC: `python\.venv\Scripts\python.exe tools\criar_atalho.py`.
-- **`main.py`**: muda `FONTE` no bloco CONFIG e dá Run
-  (`python/.venv/Scripts/python.exe main.py`).
-- **Linha de comandos**: `python -m percecao data/<bag ou vídeo>` (`--help` para as opções;
-  depois de `pip install ".[app]"` também `va-percecao`).
-
-Um rosbag é convertido uma vez para `data/cache/<bag>.avi` (reutilizado depois). Cada análise
-fica em `resultados/<gravação>_<data>/`: `deteccoes.csv`, `linhas.csv`, `seguranca.csv`,
-gráficos e, se pedido, o vídeo anotado. Player: **ESPAÇO** play/pausa · **A/D** (←/→) ·
-**+/−** velocidade · **HOME/END** · **G** guias de estacionamento · **V** vista de cima · **Q** sair.
-
-## Estrutura do repositório
-
-| Pasta / ficheiro | Papel |
-|---|---|
-| `Dockerfile`, `compose.yaml`, `compose.windows.yaml`, `compose.gpu.yaml`, `.env` | Imagem e serviços (modelo da aula 10) |
-| `Dockerfile.rgbd` | Imagem da câmara RGB-D (driver Orbbec) |
-| `src/va_planeamento/` | **Comum**: grelha local (`grid.py`) + A* (`astar.py`, `local_astar`) — copiado sem alterações |
-| `src/va_g06/` | **Do grupo**: nós `percecao` (com a grelha), `reacao`, `camara_simulada`; launch; URDF da câmara; `config/params.yaml`, `usb_cam.yaml` |
-| `src/va_percecao_msgs/` | Mensagens do grupo (`Agentes`, `Pavimento`, `EstadoSeguranca`, `Acao`, …) |
-| `percecao/` | Núcleo Python (usado pelo nó e pela aplicação off-line): `pipeline`, `detecao`, `estabilizar`, `linhas`, `sinais*`, `aproximacao`, `seguranca`, `desenho`, `fontes`, `app`, `gui`, `player`, `percecao3d`, … |
-| `main.py` | Aplicação off-line — basta dar Run |
-| `modelos/` | Pesos dos sinais (deteção GTSDB, 43 tipos GTSRB, 159 sinais PT), via Git LFS; os YOLO base (`yolo11n/m.pt`) descarregam-se sozinhos |
-| `treino/` | Treino dos modelos de sinais (`treinar_sinais.py`, `sinais_pt.py`) |
-| `tools/` | `figura_bag.py` (figuras a partir de um bag), `renomear_grupo.sh`, atalho da app, Argoverse |
-| `docs/` | Plano de projeto (`plano_de_projeto_G6.pdf`) e figuras do README (`img/`) |
-| `assets/` | Ícone da aplicação |
-| `requirements.txt`, `pyproject.toml` | Dependências Python da aplicação off-line |
-| `data/` | Bags e vídeos (volume `/data`; fora do GitHub) |
-| `resultados/` | Uma pasta por análise da aplicação (CSV, gráficos, vídeo anotado); fora do GitHub |
-| `va_datasets/` | Desenhos dos sinais PT (com créditos) e métricas dos treinos (`runs/`). GTSRB, GTSDB e Argoverse ficam só no disco: descarregam-se com `treino/dados_sinais.py` e `tools/descarregar_argoverse.py` |
-| `.github/workflows/ci.yml`, `.devcontainer/` | CI (constrói a imagem e corre os testes) e contentor de desenvolvimento |
-
-# Perceção — métodos
-
-## Linhas da faixa (`percecao/linhas.py`) — método da aula 5
-Segue o exemplo *Visual Perception Using Monocular Camera* da aula 5, passo a passo, mas
-**sem precisar de calibração**:
+### Linhas da faixa (`percecao/linhas.py`), método da Aula 5
 
 | Passo | Aula 5 | Aqui |
 |---|---|---|
-| Vista de cima | `birdsEyeView` | IPM com chão plano; horizonte fixo (câmara do ATLASCAR2, 640×480) ou estimado pelo ponto de fuga |
-| Marcas | `segmentLaneMarkerRidge` | ridge simétrico + contraste local (CLAHE) |
-| Linhas | `findParabolicLaneBoundaries` | janelas deslizantes + **parábolas por RANSAC** |
-| Rejeição | `validateBoundaryFcn`, `isOfMinLength`, força | curvatura no troço visível, comprimento mín., força ≥ 20% da maior |
-| Tipo | `classifyLaneTypes` | **contínua / tracejada** pela cobertura da linha |
-| Faixa do carro | `leftEgoBoundary` / `rightEgoBoundary` | linha mais próxima à esq. e à dir., com largura plausível |
-| Dashboard (ex. 4b) | triângulos | **amarelo** se só há 1 linha, **vermelho** se nenhuma |
-| Estatística (ex. 4a/4c) | estrutura por frame | `linhas.csv` (`frameID, frameTime, leftLine, leftLineType, …`) |
+| Vista de topo | `birdsEyeView` | IPM com chão plano |
+| Marcas | `segmentLaneMarkerRidge` | ridge simétrico com contraste local (CLAHE) |
+| Linhas | `findParabolicLaneBoundaries` | janelas deslizantes e parábolas por RANSAC |
+| Rejeição | `validateBoundaryFcn`, `isOfMinLength` | curvatura, comprimento mínimo, força relativa |
+| Tipo | `classifyLaneTypes` | contínua / tracejada pela cobertura |
+| Faixa do carro | `leftEgoBoundary` / `rightEgoBoundary` | linha mais próxima de cada lado |
+| Dashboard (ex. 4b) | triângulos | amarelo com 1 linha, vermelho sem nenhuma |
+| Estatística (ex. 4a/4c) | estrutura por imagem | `linhas.csv` |
 
-- **Horizonte** fixo em 0,365 da altura nos vídeos 640×480 da câmara do ATLASCAR2 (medido na
-  volta real); nas outras resoluções, pela mediana do ponto de fuga; vista de cima relativa à imagem
-  (só a estrada próxima entra).
-- **Brancas em `min(R,G,B)`** (o reflexo do sol no asfalto desaparece); amarelas em `(R+G)/2 − B`.
-- **Contínua/tracejada**: cobertura ≈ 1,00 vs ≈ 0,64 → limiar 0,88.
-- **Sem saltos**: cada linha é procurada primeiro perto de onde estava; uma posição muito
-  diferente só é aceite se se repetir em 5 imagens seguidas (mudança de faixa real). Nos vídeos
-  de teste, os saltos entre imagens seguidas passaram de 12–147 por lado para 0–4.
-- **Só tinta verdadeira** (estradas reais, com fissuras, remendos, calçada, passadeiras e
-  lombas): uma candidata só é linha se for **estreita** (≤ 0,30 m), **contrastar** com o
-  asfalto (≥ 12 níveis, sem o realce de contraste; medido: linhas 32–117, fissuras e terra 0–2)
-  e tiver a **estrutura** de tinta (traços de ≥ 1,2 m, não pedaços soltos); as barras das
-  passadeiras e linhas de paragem saem da procura. Uma tracejada é desenhada **só nos traços
-  que lá estão** — nunca um padrão inventado — e a faixa verde só aparece com duas linhas reais.
-- **Sem linhas: divisória estimada.** Numa vista de cima larga (±7 m) segmenta-se o asfalto
-  (cor e textura, a partir do asfalto logo atrás do carro); em cada distância o meio entre as
-  bermas dá a divisória, desenhada como **linha contínua branca "divisória (estimada)"**. Não é
-  tinta: não proíbe mudar de faixa, mas serve para saber em que faixa está cada veículo.
+- **Só tinta:** uma candidata só é linha se for estreita (≤ 0,35 m), mais clara do que o asfalto
+  dos **dois** lados (afasta bermas, calçada e riscas de passadeira) e organizada em traços de pelo
+  menos 1,2 m. As barras das passadeiras e linhas de paragem saem da procura.
+- **No tempo:** cada linha é procurada perto de onde estava; uma posição muito diferente só é aceite
+  se se repetir em 5 imagens (mudança de faixa real). O tipo só muda quando o outro ocupa 70 % das
+  últimas 15 imagens; uma linha confirmada esbate-se quando deixa de ser vista.
+- **Tracejadas:** desenhadas só nos traços que existem.
+- **Sem linhas pintadas:** divisória estimada a partir do asfalto segmentado, sempre à esquerda do
+  carro (circula-se pela direita); com o carro em calçada não se estima.
 
-| Vídeo de teste | 2 linhas | Tipo certo (esq. / dir.) |
+| Vídeo de teste | Duas linhas | Tipo certo (esq. / dir.) |
 |---|---|---|
-| Estrada de montanha com curvas | **99%** | 92% / **99%** |
-| Autoestrada com sol de frente | **97%** | **98%** / **99,5%** |
-| Dashcam 640×360 com cruzamento | 67% | — |
+| Estrada de montanha com curvas | 99 % | 92 % / 99 % |
+| Autoestrada com sol de frente | 97 % | 98 % / 99,5 % |
 
-## Agentes, distância e TTC
-YOLO11 (COCO) com rastreio ByteTrack: veículos, duas rodas (o condutor é fundido na caixa) e
-peões. A distância vem do modelo de chão plano (base da caixa → linha da imagem → metros); o
-tempo até à colisão pelo crescimento da caixa (*looming*). Só há **PERIGO com TTC ≤ 1 s**
-(`LIMIAR_RISCO` no `main.py`, `--limiar-risco`, `limiar_risco` no nó); para mudar de faixa, um
-veículo ao lado com TTC ≤ 4 s já torna a manobra insegura (`ttc_mudanca` em `seguranca.py`). O TTC só é aceite com a caixa a crescer ≥ 5%/s em 3
-medições seguidas (evita TTC falsos de caixas que tremem) e só é escrito na imagem se for ≤ 10 s.
-Com GPU: `modelos/yolo11m.pt` a 1280 px (apanha sinais e veículos pequenos); só CPU:
-`modelos/yolo11n.pt` a 640 px.
+### Agentes, distância e TTC
 
-## Sinais
-Três modelos treinados pelo grupo:
-1. **Detetor** (YOLO11s, GTSDB): encontra os sinais (proibição / perigo / obrigação / outros) —
-   precisão 0,97 · recall 0,99 · mAP50 0,991.
-2. **Classificador GTSRB** (YOLO11n-cls, 43 tipos, fotografias reais): 97,1% top-1.
-3. **Classificador português** (YOLO11n-cls, **159 sinais** A/B/C/D do Regulamento de
-   Sinalização do Trânsito, `treino/sinais_pt.py`): treinado com imagens **sintéticas** geradas
-   a partir dos desenhos oficiais do Wikimedia Commons (perspetiva, escala, desfocagem, luz,
-   ruído, JPEG, fundos de ruas reais); os limites de velocidade 20–120 são gerados a partir do C13.
+YOLO11m (COCO) a 1280 px com rastreio ByteTrack: veículos, duas rodas (o condutor fundido na caixa)
+e peões. A distância vem da base da caixa no modelo de chão plano; o tempo até à colisão, do
+crescimento da caixa (*looming*), só depois de 3 medições seguidas a crescer pelo menos 5 %/s e
+ignorando caixas cortadas pela borda. **Perigo** só com TTC ≤ 1 s; para mudar de faixa, um veículo
+ao lado com TTC ≤ 4 s já torna a manobra insegura. Sem GPU: `yolo11n.pt` a 640 px.
 
-Combinação (`percecao/sinais_treinados.py`): nos tipos que o GTSRB conhece manda o GTSRB (o
-nome sai com o código português, ex. "B2 Paragem obrigatória…"); nos sinais portugueses que o
-GTSRB não tem (lomba, estacionamento proibido, proibido virar, …) manda o classificador
-português, se confiante (≥ 0,80). Medido em 5 760 fotografias reais (GTSRB, 41 tipos comuns):
+O desenho usa caixas estabilizadas no tempo (`percecao/estabilizar.py`: previsão a velocidade
+constante, confirmação e memória curta); os dados, as mensagens e as métricas usam as caixas
+medidas.
 
-| Classificador | Acerto (fotografias reais) |
+### Sinais
+
+1. **Detetor** YOLO11s treinado no GTSDB (4 categorias).
+2. **Classificador** YOLO11n-cls treinado no GTSRB (43 tipos, fotografias reais).
+3. **Classificador português** YOLO11n-cls com os 159 sinais A/B/C/D do Regulamento de Sinalização
+   do Trânsito (`treino/sinais_pt.py`), treinado com imagens sintéticas geradas a partir dos
+   desenhos oficiais do Wikimedia Commons (créditos em `va_datasets/sinais_pt/creditos.csv`).
+
+Nos tipos que o GTSRB conhece decide o GTSRB; nos restantes, o classificador português (confiança
+≥ 0,80). Sem os modelos treinados fica um detetor clássico por cor e forma (`percecao/sinais.py`).
+Treinar de novo: `python treino/treinar_sinais.py` e `python treino/sinais_pt.py`.
+
+### Apoio ao estacionamento (RGB-D)
+
+`python -m percecao.percecao3d`: plano do chão por RANSAC, obstáculos por DBSCAN e espaço livre
+na retaguarda (Open3D), a partir das nuvens de pontos da profundidade.
+
+## Aplicação fora de linha
+
+O mesmo núcleo corre sem ROS nem Docker (Windows ou Linux, Python 3.12) para analisar gravações:
+vídeo, pasta de imagens ou bag MCAP.
+
+- **Janela:** `python -m percecao.gui` (ou o atalho criado com `python tools/criar_atalho.py`).
+- **`main.py`:** escolher `FONTE` no bloco de configuração e executar.
+- **Linha de comandos:** `python -m percecao data/<bag ou vídeo>` (`--help` para as opções).
+
+Cada análise fica em `resultados/<gravação>_<data>/`: `deteccoes.csv`, `linhas.csv`,
+`seguranca.csv`, gráficos e, se pedido, o vídeo anotado. No leitor: **espaço** reproduzir/pausa,
+**A/D** recuar/avançar, **+/−** velocidade, **G** guias de estacionamento, **V** vista de topo,
+**Q** sair. Dependências em `requirements.txt` (`pip install ".[app]"`).
+
+## Estrutura do repositório
+
+| Pasta / ficheiro | Conteúdo |
 |---|---|
-| só GTSRB | 96,7% |
-| só português (sintético) | 62,1% |
-| **combinação** (o que o sistema usa) | **93,9%** — e passa a reconhecer ~115 sinais que o GTSRB não tem (83% em imagens sintéticas novas) |
+| `Dockerfile`, `compose*.yaml`, `.env` | imagem e serviços (estrutura do modelo da Aula 10) |
+| `Dockerfile.rgbd` | imagem do driver de profundidade da Orbbec |
+| `src/va_g06/` | nós `percecao`, `visualizador`, `reacao`, `camara_simulada`; launch; URDF da câmara; `config/` |
+| `src/va_percecao_msgs/` | mensagens do grupo (`Agentes`, `Pavimento`, `EstadoSeguranca`, `Acao`, …) |
+| `src/va_planeamento/` | grelha local e A* comuns a todos os grupos (sem alterações) |
+| `percecao/` | núcleo de processamento e aplicação fora de linha |
+| `main.py` | ponto de entrada da aplicação fora de linha |
+| `modelos/` | modelos de sinais treinados pelo grupo (Git LFS); os YOLO base descarregam-se automaticamente |
+| `treino/` | treino dos modelos de sinais |
+| `tools/` | métricas na volta real (`avaliar_volta.py`), anotação manual (`anotar.py`), figuras, atalho da aplicação |
+| `va_datasets/` | desenhos dos sinais portugueses (com créditos) e métricas dos treinos; GTSRB, GTSDB e Argoverse descarregam-se com `treino/dados_sinais.py` e `tools/descarregar_argoverse.py` |
+| `docs/` | plano de projeto e figuras do README |
+| `.github/workflows/ci.yml` | integração contínua: constrói a imagem e corre os testes |
 
-Créditos dos desenhos dos sinais (autor e licença de cada um, CC BY-SA / domínio público):
-`va_datasets/sinais_pt/creditos.csv`. Sem os modelos treinados, fica um detetor clássico por cor
-(HSV) e forma (`percecao/sinais.py`).
+## Limitações e trabalho futuro
 
-Treinar de novo: `python treino/treinar_sinais.py` (GTSDB + GTSRB, ~1 h com GPU) e
-`python treino/sinais_pt.py` (sinais portugueses, ~10 min com GPU; avalia no fim em fotografias reais).
-
-## Avaliação (métricas)
-Anotar algumas imagens (CVAT, Roboflow, labelImg), gerar um `ground_truth.json`
-(`[{"bb": [[x,y,w,h],...], "classe": ["veic","peoes",...]}, ...]`, um por imagem) e pôr o
-caminho em `FICH_GT` no `main.py` → TP/FP/FN, precisão, recall, F1 e MAE por grupo.
-
-## Apoio ao estacionamento (3D / RGB-D)
-`python -m percecao.percecao3d` (cena sintética): chão por RANSAC, obstáculos por DBSCAN e lugar
-livre. Com dados reais: gravar com o profile `rgbd`, converter com `percecao.profundidade` e
-analisar as nuvens `.ply`.
-
-## Ambiente Python (aplicação off-line)
-Python **3.12** + GPU NVIDIA, em `python/.venv` (torch cu128, ultralytics, opencv, open3d,
-mcap, PySide6). Reinstalar: ver `requirements.txt`.
+- A distância é monocular (chão plano, horizonte fixo): serve para níveis de risco e erra em
+  subidas e descidas. O horizonte foi medido na gravação a 640×480; falta medi-lo para o fluxo a
+  1280×720 do `usb_cam` (até lá, estimado ou fixado em `linhas_params`).
+- Os carros estacionados ainda não se distinguem dos que circulam: perto deles disparam avisos de
+  ângulo morto e de veículo atrás.
+- A volta foi gravada em vídeo; a próxima recolha deve ser em MCAP (`--profile gravar`), com a
+  profundidade, o `/tf_static` e a velocidade do carro.
+- As métricas de deteção na volta são em relação a um modelo de referência; falta uma anotação
+  manual.
+- O classificador português foi treinado com imagens sintéticas; a 640×480 os sinais ao longe têm
+  poucos píxeis.

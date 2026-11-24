@@ -1,8 +1,10 @@
 """
-conversao.py — resultado do Pipeline (dict Python) -> mensagens ROS 2.
+conversao.py — resultado do Pipeline (dict Python) -> mensagens ROS 2 (nó 'percecao'),
+e mensagens Agentes -> marcadores 3D (nó 'visualizador').
 
-Separado do nó para se poder testar sem a câmara. Os tipos de mensagem são
-importados aqui; o nó só chama as funções.
+Separado dos nós para se poder testar sem a câmara. Os tipos de mensagem são
+importados aqui; os nós só chamam as funções. O inverso (mensagens -> dicionário para
+o desenho) está em reconstrucao.py.
 """
 import math
 
@@ -90,6 +92,19 @@ def deteccoes(msg_agentes):
     return out
 
 
+def _p32(pts):
+    return [Point32(x=float(u), y=float(v), z=0.0) for u, v in pts]
+
+
+def _linha(seg, lado):
+    """Uma linha do detetor -> LinhaFaixa (com os traços reais, se for tracejada)."""
+    m = LinhaFaixa(lado=lado, tipo=seg.get("tipo", ""), pontos=_p32(seg["pts"]))
+    for t in seg.get("tracos") or []:
+        m.tracos.extend(_p32(t))
+        m.tracos_n.append(len(t))
+    return m
+
+
 def pavimento(res, header, lado_carro):
     lin = res.get("linhas") or {}
     msg = Pavimento(header=header)
@@ -98,13 +113,11 @@ def pavimento(res, header, lado_carro):
     for chave, lado_img in (("esq", "img_esq"), ("dir", "img_dir")):
         seg = lin.get(chave)
         if seg:
-            msg.linhas.append(LinhaFaixa(lado=lado_carro(lado_img), tipo=seg.get("tipo", ""),
-                                         pontos=[Point32(x=float(u), y=float(v), z=0.0)
-                                                 for u, v in seg["pts"]]))
+            msg.linhas.append(_linha(seg, lado_carro(lado_img)))
+    if lin.get("divisoria"):                      # sem linhas pintadas: divisória estimada
+        msg.linhas.append(_linha(dict(lin["divisoria"], tipo="estimada"), "divisoria"))
     for o in lin.get("outras", []):
-        msg.linhas.append(LinhaFaixa(lado="outra", tipo=o.get("tipo", ""),
-                                     pontos=[Point32(x=float(u), y=float(v), z=0.0)
-                                             for u, v in o["pts"]]))
+        msg.linhas.append(_linha(o, "outra"))
     for m in lin.get("marcacoes", []):
         msg.marcacoes.append(Marcacao(tipo=m["tipo"], distancia=_f(m.get("dist")),
                                       contorno=[Point32(x=float(u), y=float(v), z=0.0)
@@ -129,49 +142,46 @@ def seguranca(res, header):
     return msg
 
 
-def marcadores(res, header, altura_camara, frame_corpo="camera_tras_link", limiar_risco=1.0,
+def marcadores(msg_agentes, altura_camara, frame_corpo="camera_tras_link", limiar_risco=1.0,
                vida_s=0.3):
-    """Agentes no chão, no referencial do CORPO da câmara (camera_tras_link: x para onde
-    a câmara olha = para trás do carro, y à esquerda da imagem, z para cima; o chão está
-    a -altura_camara) — para ver no rviz. (A imagem usa o referencial ótico.)"""
+    """Agentes no chão (a partir da mensagem Agentes), no referencial do CORPO da câmara
+    (camera_tras_link: x para onde a câmara olha = para trás do carro, y à esquerda da
+    imagem, z para cima; o chão está a -altura_camara) — para ver no rviz/Foxglove."""
     from std_msgs.msg import Header
-    header = Header(stamp=header.stamp, frame_id=frame_corpo)
+    header = Header(stamp=msg_agentes.header.stamp, frame_id=frame_corpo)
     out = MarkerArray()
-    apagar = Marker(header=header, action=Marker.DELETEALL)
-    out.markers.append(apagar)
+    out.markers.append(Marker(header=header, action=Marker.DELETEALL))
     k = 0
-    for grupo in ("veic", "duas_rodas", "peoes"):
-        gr = res.get(grupo) or {}
+    grupo_de = {v: g for g, v in CATEGORIA.items()}
+    for a in msg_agentes.agentes:
+        grupo = grupo_de.get(a.categoria)
+        if grupo not in COR or not math.isfinite(a.distancia) or not math.isfinite(a.lateral):
+            continue
         comp, larg, alt = TAMANHO[grupo]
         r, g, b = COR[grupo]
-        for i in range(len(gr.get("bb", []))):
-            d, lat = _get(gr, "dist", i), _get(gr, "lat", i)
-            if d is None or lat is None:
-                continue
-            ttc = _get(gr, "ttc", i)
-            risco = ttc is not None and math.isfinite(ttc) and ttc <= limiar_risco
-            m = Marker(header=header, ns=grupo, id=k, type=Marker.CUBE, action=Marker.ADD)
-            m.pose.position = Point(x=float(d) + comp / 2.0, y=float(lat),
-                                    z=-altura_camara + alt / 2.0)
-            m.pose.orientation.w = 1.0
-            m.scale = Vector3(x=comp, y=larg, z=alt)
-            m.color = ColorRGBA(r=1.0, g=0.15, b=0.15, a=0.85) if risco else \
-                ColorRGBA(r=r, g=g, b=b, a=0.75)
-            m.lifetime.nanosec = int(vida_s * 1e9)
-            out.markers.append(m)
-            k += 1
-            t = Marker(header=header, ns=grupo + "_txt", id=k, type=Marker.TEXT_VIEW_FACING,
-                       action=Marker.ADD)
-            t.pose.position = Point(x=float(d) + comp / 2.0, y=float(lat),
-                                    z=-altura_camara + alt + 0.4)
-            t.pose.orientation.w = 1.0
-            t.scale.z = 0.5
-            t.color = ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)
-            txt = f"{d:.0f} m"
-            if ttc is not None and math.isfinite(ttc):
-                txt += f"  TTC {ttc:.1f}s"
-            t.text = txt
-            t.lifetime.nanosec = int(vida_s * 1e9)
-            out.markers.append(t)
-            k += 1
+        risco = math.isfinite(a.ttc) and a.ttc <= limiar_risco
+        m = Marker(header=header, ns=grupo, id=k, type=Marker.CUBE, action=Marker.ADD)
+        m.pose.position = Point(x=float(a.distancia) + comp / 2.0, y=float(a.lateral),
+                                z=-altura_camara + alt / 2.0)
+        m.pose.orientation.w = 1.0
+        m.scale = Vector3(x=comp, y=larg, z=alt)
+        m.color = ColorRGBA(r=1.0, g=0.15, b=0.15, a=0.85) if risco else \
+            ColorRGBA(r=r, g=g, b=b, a=0.75)
+        m.lifetime.nanosec = int(vida_s * 1e9)
+        out.markers.append(m)
+        k += 1
+        t = Marker(header=header, ns=grupo + "_txt", id=k, type=Marker.TEXT_VIEW_FACING,
+                   action=Marker.ADD)
+        t.pose.position = Point(x=float(a.distancia) + comp / 2.0, y=float(a.lateral),
+                                z=-altura_camara + alt + 0.4)
+        t.pose.orientation.w = 1.0
+        t.scale.z = 0.5
+        t.color = ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)
+        txt = f"{a.classe} {a.distancia:.0f} m"
+        if math.isfinite(a.ttc) and a.ttc <= 10.0:
+            txt += f"  TTC {a.ttc:.1f}s"
+        t.text = txt
+        t.lifetime.nanosec = int(vida_s * 1e9)
+        out.markers.append(t)
+        k += 1
     return out

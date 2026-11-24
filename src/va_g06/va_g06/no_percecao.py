@@ -18,9 +18,10 @@ PUBLICA (no namespace do grupo, por omissão /g06/...)
                                                        linhas de paragem
   seguranca            va_percecao_msgs/EstadoSeguranca distância ao veículo de trás, mudança
                                                        de faixa, espaço livre, avisos
-  marcadores           visualization_msgs/MarkerArray  agentes em 3D (rviz)
-  imagem_anotada/compressed  sensor_msgs/CompressedImage  imagem com o overlay
   (todos estes, exceto a grelha, em percecao/...)
+
+Só PROCESSA e publica dados: a representação visual (imagem anotada, marcadores 3D) é
+do nó 'visualizador', que subscreve estes tópicos.
 
 O processamento é o MESMO da aplicação off-line (pacote Python 'percecao',
 classe Pipeline). Corre numa thread à parte e trata sempre a imagem MAIS RECENTE:
@@ -43,7 +44,6 @@ from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import Float32, Header
 from va_percecao_msgs.msg import Agentes, EstadoSeguranca, Pavimento
 from vision_msgs.msg import Detection2DArray
-from visualization_msgs.msg import MarkerArray
 
 
 def _importar_percecao(pasta):
@@ -77,12 +77,9 @@ class NoPercecao(Node):
         P("seguranca_params", "{}")           # JSON, ex. '{"dist_seguranca": 15}'
         P("limiar_risco", 1.0)                # TTC (s): perigo se <= isto
         P("camara_traseira", True)            # False em vídeos de câmara frontal
-        P("altura_camara", 1.75)              # m (para os marcadores 3D e escala)
+        P("altura_camara", 1.75)              # m (escala das distâncias)
         P("frame_imagem", "camera_tras_optical_frame")   # se a imagem vier sem frame_id
-        P("frame_corpo", "camera_tras_link")  # referencial dos marcadores 3D
-        P("publicar_imagem", True)
-        P("jpeg_qualidade", 70)
-        P("estacionamento", False)            # guias de estacionamento no overlay
+        P("frame_corpo", "camera_tras_link")  # corpo da câmara (para a pose na grelha)
         # grelha local (aula 10)
         P("publicar_grelha", True)
         P("frame_grelha", "base_link")
@@ -99,10 +96,9 @@ class NoPercecao(Node):
 
         pasta = g("pasta_projeto")
         _importar_percecao(pasta)
-        from percecao import desenho
         from percecao.pipeline import Config, Pipeline
         from va_g06 import conversao, grelha
-        self.desenho, self.conv, self.grelha = desenho, conversao, grelha
+        self.conv, self.grelha = conversao, grelha
 
         def no_projeto(p):
             return p if (not p or os.path.isabs(p) or os.path.exists(p)) else os.path.join(pasta, p)
@@ -112,10 +108,6 @@ class NoPercecao(Node):
         seg_params = json.loads(g("seguranca_params"))
         seg_params["traseira"] = bool(g("camara_traseira"))
         self.limiar = float(g("limiar_risco"))
-        self.altura = float(g("altura_camara"))
-        self.pub_img_on = bool(g("publicar_imagem"))
-        self.jpeg_q = int(g("jpeg_qualidade"))
-        self.estacionamento = bool(g("estacionamento"))
         self.frame_imagem, self.frame_corpo = g("frame_imagem"), g("frame_corpo")
         self.grelha_on, self.frame_grelha = bool(g("publicar_grelha")), g("frame_grelha")
         self.par_grelha = dict(resolucao=float(g("resolucao")), x_min=float(g("x_min")),
@@ -146,9 +138,6 @@ class NoPercecao(Node):
         self.pub_det = self.create_publisher(Detection2DArray, "percecao/deteccoes", q)
         self.pub_pav = self.create_publisher(Pavimento, "percecao/pavimento", q)
         self.pub_seg = self.create_publisher(EstadoSeguranca, "percecao/seguranca", q)
-        self.pub_mk = self.create_publisher(MarkerArray, "percecao/marcadores", q)
-        self.pub_img = self.create_publisher(CompressedImage,
-                                             "percecao/imagem_anotada/compressed", q)
         self.pub_grelha = self.create_publisher(OccupancyGrid, "grelha_local", q)
 
         # ---- subscrições ----
@@ -224,19 +213,11 @@ class NoPercecao(Node):
         self.pub_det.publish(C.deteccoes(ag))
         self.pub_pav.publish(C.pavimento(res, h, self.lado_carro))
         self.pub_seg.publish(C.seguranca(res, h))
-        self.pub_mk.publish(C.marcadores(res, h, self.altura, self.frame_corpo, self.limiar))
         if self.grelha_on:
             gr = self.grelha.construir(res, self._pose_camara(), self.par_grelha)
             # cabeçalho PRÓPRIO: mesmo instante da imagem, outro referencial (não mexer no h,
             # que é o das outras mensagens)
             self.pub_grelha.publish(gr.para_msg(Header(stamp=h.stamp, frame_id=self.frame_grelha)))
-        if self.pub_img_on and self.pub_img.get_subscription_count() > 0:
-            import cv2
-            anot = self.desenho.desenhar(frame, res, ttc_risco=self.limiar,
-                                         estacionamento=self.estacionamento)
-            ok, enc = cv2.imencode(".jpg", anot, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_q])
-            if ok:
-                self.pub_img.publish(CompressedImage(header=h, format="jpeg", data=enc.tobytes()))
 
         self._n_proc += 1
         agora = time.time()

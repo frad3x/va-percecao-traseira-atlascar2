@@ -13,16 +13,28 @@ Visualization Manager:
     - Class: rviz_default_plugins/TF
       Name: TF
       Enabled: true
+    - Class: rviz_default_plugins/Map
+      Name: Grelha local
+      Enabled: true
+      Topic:
+        Value: /g06/grelha_local
+      Alpha: 0.7
+      Color Scheme: map
+    - Class: rviz_default_plugins/Path
+      Name: Caminho (A*)
+      Enabled: true
+      Topic:
+        Value: /g06/caminho_local
     - Class: rviz_default_plugins/MarkerArray
       Name: Agentes (3D)
       Enabled: true
       Topic:
-        Value: /atlascar2/camera_tras/percecao/marcadores
+        Value: /g06/visualizacao/marcadores
     - Class: rviz_default_plugins/Image
       Name: Imagem anotada
       Enabled: true
       Topic:
-        Value: /atlascar2/camera_tras/percecao/imagem_anotada
+        Value: /g06/visualizacao/imagem_anotada
         Transport Hint: compressed
   Global Options:
     Fixed Frame: base_link

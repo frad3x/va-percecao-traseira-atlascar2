@@ -21,9 +21,6 @@
     limiar_risco: 1.0              # TTC (s): perigo só com 1 s ou menos
     camara_traseira: true
     altura_camara: 1.75            # m (igual ao CAM_Z do .env; medido ~1,75 m)
-    publicar_imagem: true          # só codifica se alguém estiver a ver o tópico
-    jpeg_qualidade: 70
-    estacionamento: false          # guias de estacionamento no overlay
     # --- grelha local (aula 10): nav_msgs/OccupancyGrid no base_link, zona ATRÁS ---
     publicar_grelha: true
     frame_grelha: base_link
@@ -35,6 +32,19 @@
     alcance_livre: 30.0            # m de chão visível marcado como livre
     hfov: 66.0                     # campo de visão horizontal (Astra Pro)
     linhas_continuas_ocupadas: true
+
+# Representação visual (separada do processamento): junta a câmara e o que a perceção
+# publica e desenha a imagem anotada + os marcadores 3D. Só desenha se alguém estiver a ver.
+/**/visualizador:
+  ros__parameters:
+    image_topic: /atlascar2/camera_tras/image_raw/compressed   # a MESMA da perceção
+    comprimida: true
+    altura_camara: 1.75
+    limiar_risco: 1.0
+    camara_traseira: true
+    estacionamento: false          # guias de estacionamento no desenho
+    jpeg_qualidade: 80
+    linhas_params: "{}"            # o mesmo da perceção
 
 /**/reacao:
   ros__parameters:
