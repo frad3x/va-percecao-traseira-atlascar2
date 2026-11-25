@@ -8,7 +8,7 @@ portugueses; distância e tempo até à colisão; avisos de segurança; grelha d
 do carro e planeamento local (A*) para avaliar a mudança de faixa. Em ROS 2 e Docker, com uma
 aplicação para analisar as gravações fora de linha.
 
-![Volta real com o ATLASCAR2](docs/img/desenho_volta_real.jpg)
+![Deteções na volta real com o ATLASCAR2](docs/img/demo.gif)
 
 | | |
 |---|---|
@@ -139,6 +139,8 @@ As gravações não estão no repositório (vários GB): ficam no disco do grupo
 ## Resultados
 
 ### Volta real de 20/11/2026
+
+![Volta real com o ATLASCAR2](docs/img/desenho_volta_real.jpg)
 
 20 902 imagens (a metade a cores, a 15 fps, a taxa da câmara no carro), analisadas com o pipeline
 completo. Figuras: `python tools/figura_grelha.py data/passeio_20261120_091854/rgb_camara_traseira.mp4 --instantes 15128 15506 15700`.
