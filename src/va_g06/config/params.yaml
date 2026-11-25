@@ -4,6 +4,7 @@
 
 /**/percecao:
   ros__parameters:
+    # Com o compose, a imagem vem do .env (IMAGE_TOPIC, COMPRIMIDA), que se sobrepõe a isto
     image_topic: /atlascar2/camera_tras/image_raw/compressed
     comprimida: true               # false -> subscreve sensor_msgs/Image (raw)
     velocidade_topic: /atlascar2/velocidade   # std_msgs/Float32 (m/s); "" para desligar
@@ -37,7 +38,7 @@
 # publica e desenha a imagem anotada + os marcadores 3D. Só desenha se alguém estiver a ver.
 /**/visualizador:
   ros__parameters:
-    image_topic: /atlascar2/camera_tras/image_raw/compressed   # a MESMA da perceção
+    image_topic: /atlascar2/camera_tras/image_raw/compressed   # a mesma da perceção (.env)
     comprimida: true
     altura_camara: 1.75
     limiar_risco: 1.0

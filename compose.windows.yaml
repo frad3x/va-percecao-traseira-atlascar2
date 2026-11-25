@@ -41,13 +41,14 @@ services:
     profiles: [reproduzir]
     command: >
       ros2 bag play /data/${BAG:-indicar_BAG} --loop
-      --topics ${TOPICOS:-/atlascar2/camera_tras/image_raw/compressed /tf /tf_static}
+      --topics ${TOPICOS:-${IMAGE_TOPIC:-/atlascar2/camera_tras/image_raw/compressed} /tf /tf_static}
 
   percecao:
     <<: *ros
     command: >
       ros2 launch va_g06 percecao.launch.py namespace:=/${GRUPO:-g06}
       modelo:=${MODELO:-modelos/yolo11n.pt} imgsz:=${IMGSZ:-640}
+      image_topic:=${IMAGE_TOPIC:-/atlascar2/camera_tras/image_raw/compressed} comprimida:=${COMPRIMIDA:-true}
 
   planeador:
     <<: *ros

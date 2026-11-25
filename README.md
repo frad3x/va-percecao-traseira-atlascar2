@@ -105,6 +105,9 @@ BAG=<pasta_em_data> docker compose --profile reproduzir up  # com um bag gravado
   `/g06/visualizacao/marcadores`; painel Image: `/g06/visualizacao/imagem_anotada/compressed`).
   Em Linux também `--profile rviz`.
 - **Gravar** a câmara e os resultados em `data/`: juntar `--profile gravar`.
+- **Outro tópico de imagem** (por exemplo num bag de outro sistema): `IMAGE_TOPIC` no `.env` e,
+  para `sensor_msgs/Image` sem compressão, `COMPRIMIDA=false`; vale para a perceção, a
+  visualização e o `--profile reproduzir`, sem reconstruir a imagem.
 - **Câmara simulada com um vídeo:** `VIDEO_SIM=/data/<vídeo>.mp4` no `.env`; para um vídeo lado a
   lado (cor | profundidade) também `METADE_SIM=esquerda`.
 - **GPU NVIDIA:** `docker compose -f compose.yaml -f compose.gpu.yaml ...`; sem GPU, no `.env`,

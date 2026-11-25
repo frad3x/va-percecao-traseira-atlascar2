@@ -57,7 +57,7 @@ services:
     profiles: [reproduzir]
     command: >
       ros2 bag play /data/${BAG:-indicar_BAG} --loop
-      --topics ${TOPICOS:-/atlascar2/camera_tras/image_raw/compressed /tf /tf_static}
+      --topics ${TOPICOS:-${IMAGE_TOPIC:-/atlascar2/camera_tras/image_raw/compressed} /tf /tf_static}
 
   # ----------------------------------------------------------------- processamento
   percecao:                   # o nó do grupo: imagem -> deteções, avisos, grelha_local (+ reação)
@@ -65,6 +65,7 @@ services:
     command: >
       ros2 launch va_g06 percecao.launch.py namespace:=/${GRUPO:-g06}
       modelo:=${MODELO:-modelos/yolo11n.pt} imgsz:=${IMGSZ:-640}
+      image_topic:=${IMAGE_TOPIC:-/atlascar2/camera_tras/image_raw/compressed} comprimida:=${COMPRIMIDA:-true}
 
   planeador:                  # comum a todos: grelha_local -> caminho_local + estado
     <<: *ros
